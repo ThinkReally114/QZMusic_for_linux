@@ -16,5 +16,9 @@ electron.contextBridge.exposeInMainWorld("electronAPI", {
     setVolume: (vol) => electron.ipcRenderer.invoke("mpv-set-volume", vol),
     seek: (time) => electron.ipcRenderer.invoke("mpv-seek", time),
     onEvent: (callback) => electron.ipcRenderer.on("mpv-event", callback)
+  },
+  // Plugin System
+  plugin: {
+    call: (pluginId, method, args) => electron.ipcRenderer.invoke("plugin:call", pluginId, method, args)
   }
 });

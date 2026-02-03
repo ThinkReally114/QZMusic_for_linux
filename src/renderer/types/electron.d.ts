@@ -12,7 +12,10 @@ export interface IElectronAPI {
         setVolume: (vol: number) => Promise<void>;
         seek: (time: number) => Promise<void>;
         onEvent: (callback: (event: any, data: any) => void) => void;
-    }
+    };
+    plugin: {
+        call: (pluginId: string, method: string, args: any[]) => Promise<any>;
+    };
 }
 
 declare global {

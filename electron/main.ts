@@ -2,8 +2,9 @@ import { app, BrowserWindow, Menu, ipcMain } from 'electron'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
+import fs from 'node:fs'
 import { MpvController } from './mpvController'
-
+import { PluginSystem } from '../src/main/pluginSystem.ts'
 // @ts-ignore
 const require = createRequire(import.meta.url)
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -45,7 +46,7 @@ function createWindow() {
     } else {
         win.loadFile(path.join(RENDERER_DIST, 'index.html'))
     }
-
+    win.webContents.openDevTools();
     registerZoomShortcuts(win)
 }
 
@@ -69,9 +70,25 @@ ipcMain.handle('mpv-play', () => mpv?.play())
 ipcMain.handle('mpv-pause', () => mpv?.pause())
 ipcMain.handle('mpv-toggle-pause', () => mpv?.togglePause())
 ipcMain.handle('mpv-stop', () => mpv?.stop())
-ipcMain.handle('mpv-set-volume', (e, vol) => mpv?.setVolume(vol))
+ipcMain.handle('mpv-set-volume', (_, vol) => mpv?.setVolume(vol))
 ipcMain.handle('mpv-seek', (_, time) => mpv?.seek(time))
 
+// PluginSystem
+ipcMain.handle(
+    'plugin:call',
+    async (_evenv, pluginId: string, method: string, args: any[]) => {
+        const plugin = new PluginSystem(pluginId)
+
+        if (typeof (plugin as any)[method] !== 'function') {
+            return {
+                success: false,
+                error: `Method ${method} not found`
+            }
+        }
+
+        return await (plugin as any)[method](...args)
+    }
+)
 
 app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') {
@@ -115,6 +132,34 @@ app.on('activate', () => {
 })
 
 app.whenReady().then(() => {
+    // Ensure plugins directory exists
+    const pluginsPath = path.join(app.getPath('userData'), 'plugins')
+    if (!fs.existsSync(pluginsPath)) {
+        fs.mkdirSync(pluginsPath, { recursive: true })
+    }
+
+    // --- Ensure Sample 'wy' Plugin Exists ---
+    const wyPluginPath = path.join(pluginsPath, 'wy')
+    const wyPluginIndex = path.join(wyPluginPath, 'index.js')
+    if (!fs.existsSync(wyPluginIndex)) {
+        if (!fs.existsSync(wyPluginPath)) fs.mkdirSync(wyPluginPath, { recursive: true })
+        fs.writeFileSync(wyPluginIndex, `
+module.exports = {
+    async getUrl(id, quality) {
+        const url = \`https://api.qz.shiqianjiang.cn/music/url?source=wy&songId=\${id}&quality=\${quality}&key=testkey\`;
+        try {
+            const response = await fetch(url);
+            const data = await response.json();
+            return data;
+        } catch (e) {
+            return { success: false, error: e.message };
+        }
+    }
+}
+        `.trim())
+    }
+    // ----------------------------------------
+
     Menu.setApplicationMenu(null)
     createWindow()
 

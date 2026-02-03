@@ -1,14 +1,16 @@
 var __defProp = Object.defineProperty;
 var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
 var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
-import { ipcMain, BrowserWindow, app, Menu } from "electron";
+import { app, ipcMain, BrowserWindow, Menu } from "electron";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path$1 from "node:path";
+import fs$1 from "node:fs";
 import { spawn } from "child_process";
 import { Socket } from "net";
 import { EventEmitter } from "events";
 import path from "path";
+import fs from "fs";
 class MpvController extends EventEmitter {
   constructor(ipcPath) {
     super();
@@ -142,6 +144,50 @@ class MpvController extends EventEmitter {
     }
   }
 }
+const require$1 = createRequire(import.meta.url);
+class PluginSystem {
+  constructor(pluginId) {
+    __publicField(this, "pluginId");
+    __publicField(this, "plugin", null);
+    this.pluginId = pluginId;
+    this.loadPlugin();
+  }
+  loadPlugin() {
+    try {
+      const pluginPath = path.join(
+        app.getPath("userData"),
+        "plugins",
+        this.pluginId,
+        "index.js"
+      );
+      if (!fs.existsSync(pluginPath)) {
+        throw new Error(`Plugin ${this.pluginId} not found`);
+      }
+      delete require$1.cache[require$1.resolve(pluginPath)];
+      this.plugin = require$1(pluginPath);
+    } catch (e) {
+      console.error(`[PluginSystem] load failed:`, e);
+      this.plugin = null;
+    }
+  }
+  async getUrl(id, quality) {
+    var _a;
+    if (!((_a = this.plugin) == null ? void 0 : _a.getUrl)) {
+      return {
+        success: false,
+        error: "getUrl not implemented"
+      };
+    }
+    try {
+      return await this.plugin.getUrl(id, quality);
+    } catch (e) {
+      return {
+        success: false,
+        error: e.message || "plugin error"
+      };
+    }
+  }
+}
 createRequire(import.meta.url);
 const __dirname$1 = path$1.dirname(fileURLToPath(import.meta.url));
 process.env.APP_ROOT = path$1.join(__dirname$1, "..");
@@ -173,6 +219,7 @@ function createWindow() {
   } else {
     win.loadFile(path$1.join(RENDERER_DIST, "index.html"));
   }
+  win.webContents.openDevTools();
   registerZoomShortcuts(win);
 }
 ipcMain.on("window-minimize", (event) => {
@@ -192,8 +239,21 @@ ipcMain.handle("mpv-play", () => mpv == null ? void 0 : mpv.play());
 ipcMain.handle("mpv-pause", () => mpv == null ? void 0 : mpv.pause());
 ipcMain.handle("mpv-toggle-pause", () => mpv == null ? void 0 : mpv.togglePause());
 ipcMain.handle("mpv-stop", () => mpv == null ? void 0 : mpv.stop());
-ipcMain.handle("mpv-set-volume", (e, vol) => mpv == null ? void 0 : mpv.setVolume(vol));
+ipcMain.handle("mpv-set-volume", (_, vol) => mpv == null ? void 0 : mpv.setVolume(vol));
 ipcMain.handle("mpv-seek", (_, time) => mpv == null ? void 0 : mpv.seek(time));
+ipcMain.handle(
+  "plugin:call",
+  async (_evenv, pluginId, method, args) => {
+    const plugin = new PluginSystem(pluginId);
+    if (typeof plugin[method] !== "function") {
+      return {
+        success: false,
+        error: `Method ${method} not found`
+      };
+    }
+    return await plugin[method](...args);
+  }
+);
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
     app.quit();
@@ -231,6 +291,29 @@ app.on("activate", () => {
   }
 });
 app.whenReady().then(() => {
+  const pluginsPath = path$1.join(app.getPath("userData"), "plugins");
+  if (!fs$1.existsSync(pluginsPath)) {
+    fs$1.mkdirSync(pluginsPath, { recursive: true });
+  }
+  const wyPluginPath = path$1.join(pluginsPath, "wy");
+  const wyPluginIndex = path$1.join(wyPluginPath, "index.js");
+  if (!fs$1.existsSync(wyPluginIndex)) {
+    if (!fs$1.existsSync(wyPluginPath)) fs$1.mkdirSync(wyPluginPath, { recursive: true });
+    fs$1.writeFileSync(wyPluginIndex, `
+module.exports = {
+    async getUrl(id, quality) {
+        const url = \`https://api.qz.shiqianjiang.cn/music/url?source=wy&songId=\${id}&quality=\${quality}&key=testkey\`;
+        try {
+            const response = await fetch(url);
+            const data = await response.json();
+            return data;
+        } catch (e) {
+            return { success: false, error: e.message };
+        }
+    }
+}
+        `.trim());
+  }
   Menu.setApplicationMenu(null);
   createWindow();
   mpv = new MpvController();

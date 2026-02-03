@@ -17,5 +17,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
         setVolume: (vol: number) => ipcRenderer.invoke('mpv-set-volume', vol),
         seek: (time: number) => ipcRenderer.invoke('mpv-seek', time),
         onEvent: (callback: (event: any, data: any) => void) => ipcRenderer.on('mpv-event', callback)
+    },
+
+    // Plugin System
+    plugin: {
+        call: (pluginId: string, method: string, args: any[]) => ipcRenderer.invoke('plugin:call', pluginId, method, args)
     }
 })

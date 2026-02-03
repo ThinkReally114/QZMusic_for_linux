@@ -1,4 +1,4 @@
-// src/main.ts
+// src/renderer/main.ts
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import { createRouter, createWebHashHistory } from 'vue-router'
@@ -50,13 +50,13 @@ const playerStore = usePlayerStore()
 playerStore.playMode = PlayMode.Single;
 
 const testSong: Song = {
-  id: '9999',
-  name: 'Test FLAC',
-  artist: 'Netease',
-  picUrl: 'http://p1.music.126.net/btYBbFLd5mf9w0lDpfNs6w==/109951171506809884.jpg?param=130y130',
-  url: 'http://m801.music.126.net/20260202213928/189743bba596f8fd999bc44fd51d11fd/jdymusic/obj/wo3DlMOGwrbDjj7DisKw/61393856655/24be/6a68/77e4/fb898a5378682427bf7a4fb55640e610.flac',
-  duration: '03:30',
-  source: 'netease',
+  id: '3337983421',
+  name: '不死身ごっこ (feat. 初音ミク)',
+  artist: 'ピノキオピー、初音ミク',
+  picUrl: 'http://p2.music.126.net/7O6FcCraxldhFGz4CSPVlw==/109951172567380787.jpg?imageView=&thumbnail=371y371&type=webp&rotate=360&tostatic=0',
+  url: 'http://m701.music.126.net/20260203120731/1480f3bdda9795d5e7cc25af304b6cae/jdymusic/obj/wo3DlMOGwrbDjj7DisKw/77635439540/89c6/162f/e373/62ded4a27758346e53f717f46ba2802c.flac',
+  duration: '02:31',
+  source: 'wy',
   type: 'Remote'
 };
 
