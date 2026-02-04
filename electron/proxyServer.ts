@@ -169,48 +169,6 @@ function serveFromCache(req: http.IncomingMessage, res: http.ServerResponse, fil
     return true;
 }
 
-// Serve partial content from an incomplete cache file + proxy the rest
-async function servePartialFromCache(
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
-    filePath: string,
-    cachedSize: number,
-    totalSize: number,
-    contentType: string,
-    targetUrl: string
-): Promise<void> {
-    const range = parseRangeHeader(req.headers.range, totalSize);
-
-    // If no range or range starts from 0, and we have some cached data
-    if (!range || range.start === 0) {
-        // Can serve from beginning of cache
-        if (cachedSize > 0 && range && range.end < cachedSize) {
-            // Entire requested range is in cache
-            const { start, end } = range;
-            const chunksize = (end - start) + 1;
-
-            res.writeHead(206, {
-                'Content-Range': `bytes ${start}-${end}/${totalSize}`,
-                'Accept-Ranges': 'bytes',
-                'Content-Length': chunksize,
-                'Content-Type': contentType,
-            });
-
-            const file = fs.createReadStream(filePath, { start, end });
-            file.pipe(res);
-            console.log(`[Proxy] Served range ${start}-${end} from partial cache`);
-            return;
-        }
-    }
-
-    if (range && range.start < cachedSize) {
-        console.log(`[Proxy] Range ${range.start}-${range.end} partially in cache, proxying all`);
-    }
-
-    // Fallback: proxy from origin
-    await proxyWithoutCache(req, res, targetUrl);
-}
-
 async function proxyWithoutCache(
     req: http.IncomingMessage,
     res: http.ServerResponse,
@@ -278,12 +236,6 @@ async function proxyAndCache(
             if (range && range.end < downloadState.currentSize) {
                 // Requested range is fully downloaded, serve from cache
                 console.log(`[Proxy] Serving range from in-progress cache`);
-                const metadata: CacheMetadata = {
-                    totalSize: downloadState.totalSize,
-                    contentType: 'audio/mpeg',
-                    complete: false,
-                    createdAt: Date.now()
-                };
 
                 const { start, end } = range;
                 const chunksize = (end - start) + 1;
