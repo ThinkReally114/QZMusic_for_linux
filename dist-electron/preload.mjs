@@ -20,5 +20,19 @@ electron.contextBridge.exposeInMainWorld("electronAPI", {
   // Plugin System
   plugin: {
     call: (pluginId, method, args) => electron.ipcRenderer.invoke("plugin:call", pluginId, method, args)
+  },
+  // Cache Control
+  getCacheInfo: () => electron.ipcRenderer.invoke("cache:getInfo"),
+  setCachePersist: (persist) => electron.ipcRenderer.invoke("cache:setPersist", persist),
+  openCacheFolder: () => electron.ipcRenderer.invoke("cache:openFolder"),
+  clearCache: () => electron.ipcRenderer.invoke("cache:clear"),
+  // Settings
+  settings: {
+    getAll: () => electron.ipcRenderer.invoke("settings:getAll"),
+    set: (settings) => electron.ipcRenderer.invoke("settings:set", settings),
+    getTheme: () => electron.ipcRenderer.invoke("settings:getTheme"),
+    setTheme: (theme) => electron.ipcRenderer.invoke("settings:setTheme", theme),
+    getAccentColor: () => electron.ipcRenderer.invoke("settings:getAccentColor"),
+    setAccentColor: (color) => electron.ipcRenderer.invoke("settings:setAccentColor", color)
   }
 });

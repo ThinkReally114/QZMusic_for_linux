@@ -150,7 +150,7 @@ class MpvController extends EventEmitter {
     }
   }
 }
-const require$1 = createRequire(import.meta.url);
+const require$2 = createRequire(import.meta.url);
 class PluginSystem {
   constructor(pluginId) {
     __publicField(this, "pluginId");
@@ -169,8 +169,8 @@ class PluginSystem {
       if (!fs.existsSync(pluginPath)) {
         throw new Error(`Plugin ${this.pluginId} not found`);
       }
-      delete require$1.cache[require$1.resolve(pluginPath)];
-      this.plugin = require$1(pluginPath);
+      delete require$2.cache[require$2.resolve(pluginPath)];
+      this.plugin = require$2(pluginPath);
     } catch (e) {
       console.error(`[PluginSystem] load failed:`, e);
       this.plugin = null;
@@ -211,7 +211,7 @@ function ensureCacheDir() {
   return CACHE_DIR;
 }
 const urlCache = /* @__PURE__ */ new Map();
-const downloadingFiles = /* @__PURE__ */ new Map();
+const downloadTasks = /* @__PURE__ */ new Map();
 function getCachePath(source, id, quality) {
   const dir = ensureCacheDir();
   const safeId = id.replace(/[^a-z0-9]/gi, "_");
@@ -219,6 +219,9 @@ function getCachePath(source, id, quality) {
 }
 function getMetadataPath(cachePath) {
   return cachePath + ".meta";
+}
+function getTempPath(cachePath) {
+  return cachePath + ".tmp";
 }
 function readMetadata(cachePath) {
   const metaPath = getMetadataPath(cachePath);
@@ -258,11 +261,15 @@ async function fetchFreshUrl(source, id, quality) {
   }
 }
 function isValidCacheFile(filePath) {
-  const metadata = readMetadata(filePath);
-  if (!metadata || !metadata.complete) return false;
-  if (!fs.existsSync(filePath)) return false;
-  const stat = fs.statSync(filePath);
-  return stat.size === metadata.totalSize && stat.size > 1024;
+  try {
+    const metadata = readMetadata(filePath);
+    if (!metadata || !metadata.complete) return false;
+    if (!fs.existsSync(filePath)) return false;
+    const stat = fs.statSync(filePath);
+    return stat.size === metadata.totalSize && stat.size > 1024;
+  } catch {
+    return false;
+  }
 }
 function parseRangeHeader(range, fileSize) {
   if (!range) return null;
@@ -275,107 +282,270 @@ function parseRangeHeader(range, fileSize) {
   return { start, end };
 }
 function serveFromCache(req, res, filePath) {
-  const metadata = readMetadata(filePath);
-  if (!metadata) {
-    console.warn("[Proxy] No metadata for cache file");
+  try {
+    const metadata = readMetadata(filePath);
+    if (!metadata) {
+      console.warn("[Proxy] No metadata for cache file");
+      return false;
+    }
+    const stat = fs.statSync(filePath);
+    const fileSize = stat.size;
+    const range = parseRangeHeader(req.headers.range, fileSize);
+    if (range) {
+      const { start, end } = range;
+      const chunksize = end - start + 1;
+      res.writeHead(206, {
+        "Content-Range": `bytes ${start}-${end}/${fileSize}`,
+        "Accept-Ranges": "bytes",
+        "Content-Length": chunksize,
+        "Content-Type": metadata.contentType || "audio/mpeg"
+      });
+      const file = fs.createReadStream(filePath, { start, end });
+      file.pipe(res);
+      file.on("error", (err) => {
+        console.error("[Proxy] Error reading cache file:", err);
+        if (!res.headersSent) {
+          res.writeHead(500);
+          res.end("Cache read error");
+        }
+      });
+    } else {
+      res.writeHead(200, {
+        "Content-Length": fileSize,
+        "Content-Type": metadata.contentType || "audio/mpeg",
+        "Accept-Ranges": "bytes"
+      });
+      const stream = fs.createReadStream(filePath);
+      stream.pipe(res);
+      stream.on("error", (err) => {
+        console.error("[Proxy] Error reading cache file:", err);
+      });
+    }
+    return true;
+  } catch (e) {
+    console.error("[Proxy] Error serving from cache:", e);
     return false;
   }
-  const stat = fs.statSync(filePath);
-  const fileSize = stat.size;
-  const range = parseRangeHeader(req.headers.range, fileSize);
-  if (range) {
-    const { start, end } = range;
-    const chunksize = end - start + 1;
-    res.writeHead(206, {
-      "Content-Range": `bytes ${start}-${end}/${fileSize}`,
-      "Accept-Ranges": "bytes",
-      "Content-Length": chunksize,
-      "Content-Type": metadata.contentType || "audio/mpeg"
-    });
-    const file = fs.createReadStream(filePath, { start, end });
-    file.pipe(res);
-    file.on("error", (err) => {
-      console.error("[Proxy] Error reading cache file:", err);
-      if (!res.headersSent) {
-        res.writeHead(500);
-        res.end("Cache read error");
-      }
-    });
-  } else {
-    res.writeHead(200, {
-      "Content-Length": fileSize,
-      "Content-Type": metadata.contentType || "audio/mpeg",
-      "Accept-Ranges": "bytes"
-    });
-    const stream = fs.createReadStream(filePath);
-    stream.pipe(res);
-    stream.on("error", (err) => {
-      console.error("[Proxy] Error reading cache file:", err);
-    });
-  }
-  return true;
 }
-async function proxyWithoutCache(req, res, targetUrl) {
-  const headers = {};
+async function proxyRangeDirect(req, res, targetUrl, totalSize, contentType) {
+  const headers = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+  };
   if (req.headers.range) {
     headers["Range"] = req.headers.range;
   }
-  headers["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
   const response = await fetch(targetUrl, {
     method: "GET",
     headers
   });
-  if (!response.ok) {
+  if (!response.ok && response.status !== 206) {
     throw { statusCode: response.status, statusText: response.statusText };
   }
-  const headersToForward = ["content-type", "content-length", "content-range", "accept-ranges"];
-  headersToForward.forEach((h) => {
-    const val = response.headers.get(h);
-    if (val) res.setHeader(h, val);
-  });
-  res.statusCode = response.status;
+  const responseContentType = response.headers.get("content-type") || contentType || "audio/mpeg";
+  const contentLength = response.headers.get("content-length");
+  const contentRange = response.headers.get("content-range");
+  if (response.status === 206 && contentRange) {
+    res.writeHead(206, {
+      "Content-Type": responseContentType,
+      "Content-Length": contentLength || "",
+      "Content-Range": contentRange,
+      "Accept-Ranges": "bytes"
+    });
+  } else {
+    res.writeHead(200, {
+      "Content-Type": responseContentType,
+      "Content-Length": contentLength || "",
+      "Accept-Ranges": "bytes"
+    });
+  }
   if (!response.body) {
     res.end();
     return;
   }
   const nodeStream = Readable.fromWeb(response.body);
   nodeStream.pipe(res);
-  nodeStream.on("error", (err) => {
-    console.error("[Proxy] Stream error:", err);
-    if (!res.headersSent) {
-      res.writeHead(502);
-      res.end("Proxy stream error");
-    }
+  return new Promise((resolve, reject) => {
+    nodeStream.on("end", resolve);
+    nodeStream.on("error", reject);
+    res.on("close", () => {
+      nodeStream.destroy();
+      resolve();
+    });
   });
 }
-async function proxyAndCache(req, res, targetUrl, cacheFilePath) {
-  const requestedRange = req.headers.range;
-  const downloadState = downloadingFiles.get(cacheFilePath);
-  if (downloadState) {
-    console.log(`[Proxy] File already downloading, current: ${downloadState.currentSize}/${downloadState.totalSize}`);
-    if (requestedRange) {
-      const range = parseRangeHeader(requestedRange, downloadState.totalSize);
-      if (range && range.end < downloadState.currentSize) {
-        console.log(`[Proxy] Serving range from in-progress cache`);
-        const { start, end } = range;
-        const chunksize = end - start + 1;
-        res.writeHead(206, {
-          "Content-Range": `bytes ${start}-${end}/${downloadState.totalSize}`,
-          "Accept-Ranges": "bytes",
-          "Content-Length": chunksize,
-          "Content-Type": "audio/mpeg"
+function serveFromPartialCache(req, res, filePath, task) {
+  try {
+    const tempPath = getTempPath(filePath);
+    if (!fs.existsSync(tempPath)) return false;
+    const range = parseRangeHeader(req.headers.range, task.totalSize);
+    if (!range) return false;
+    const { start, end } = range;
+    if (end >= task.currentSize) {
+      return false;
+    }
+    const chunksize = end - start + 1;
+    res.writeHead(206, {
+      "Content-Range": `bytes ${start}-${end}/${task.totalSize}`,
+      "Accept-Ranges": "bytes",
+      "Content-Length": chunksize,
+      "Content-Type": task.contentType || "audio/mpeg"
+    });
+    const file = fs.createReadStream(tempPath, { start, end });
+    file.pipe(res);
+    return true;
+  } catch (e) {
+    console.error("[Proxy] Error serving from partial cache:", e);
+    return false;
+  }
+}
+function startBackgroundDownload(targetUrl, cacheFilePath, cacheKey) {
+  const existingTask = downloadTasks.get(cacheFilePath);
+  if (existingTask) {
+    return existingTask;
+  }
+  const abortController = new AbortController();
+  const task = {
+    currentSize: 0,
+    totalSize: 0,
+    contentType: "audio/mpeg",
+    abortController,
+    promise: null
+  };
+  downloadTasks.set(cacheFilePath, task);
+  task.promise = (async () => {
+    const tempPath = getTempPath(cacheFilePath);
+    try {
+      try {
+        if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+      } catch {
+      }
+      const response = await fetch(targetUrl, {
+        method: "GET",
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        },
+        signal: abortController.signal
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const contentLength = parseInt(response.headers.get("content-length") || "0", 10);
+      const contentType = response.headers.get("content-type") || "audio/mpeg";
+      if (!contentLength) {
+        console.warn("[Proxy] Background download: No content-length, skipping cache");
+        downloadTasks.delete(cacheFilePath);
+        return;
+      }
+      task.totalSize = contentLength;
+      task.contentType = contentType;
+      console.log(`[Proxy] Background download started: ${cacheFilePath} (${contentLength} bytes)`);
+      const fileStream = fs.createWriteStream(tempPath);
+      if (!response.body) {
+        downloadTasks.delete(cacheFilePath);
+        return;
+      }
+      const nodeStream = Readable.fromWeb(response.body);
+      await new Promise((resolve, reject) => {
+        nodeStream.on("data", (chunk) => {
+          task.currentSize += chunk.length;
         });
-        const file = fs.createReadStream(cacheFilePath, { start, end });
-        file.pipe(res);
+        nodeStream.pipe(fileStream);
+        fileStream.on("finish", () => {
+          try {
+            const stat = fs.statSync(tempPath);
+            if (stat.size === contentLength) {
+              fs.renameSync(tempPath, cacheFilePath);
+              writeMetadata(cacheFilePath, {
+                totalSize: contentLength,
+                contentType,
+                complete: true,
+                createdAt: Date.now()
+              });
+              console.log(`[Proxy] Background download complete: ${cacheFilePath}`);
+            } else {
+              console.warn(`[Proxy] Incomplete download: ${stat.size}/${contentLength}`);
+              try {
+                fs.unlinkSync(tempPath);
+              } catch {
+              }
+            }
+          } catch (e) {
+            console.error("[Proxy] Failed to finalize cache:", e);
+            try {
+              fs.unlinkSync(tempPath);
+            } catch {
+            }
+          }
+          resolve();
+        });
+        fileStream.on("error", (err) => {
+          console.error("[Proxy] Background download write error:", err);
+          try {
+            fs.unlinkSync(tempPath);
+          } catch {
+          }
+          reject(err);
+        });
+        nodeStream.on("error", (err) => {
+          console.error("[Proxy] Background download stream error:", err);
+          fileStream.destroy();
+          try {
+            fs.unlinkSync(tempPath);
+          } catch {
+          }
+          reject(err);
+        });
+      });
+    } catch (e) {
+      if (e.name !== "AbortError") {
+        console.error("[Proxy] Background download failed:", e);
+      }
+      try {
+        fs.unlinkSync(tempPath);
+      } catch {
+      }
+    } finally {
+      downloadTasks.delete(cacheFilePath);
+    }
+  })();
+  return task;
+}
+async function proxyAndCache(req, res, targetUrl, cacheFilePath, cacheKey) {
+  const requestedRange = req.headers.range;
+  const isSeekRequest = requestedRange && !requestedRange.startsWith("bytes=0-");
+  let task = downloadTasks.get(cacheFilePath);
+  if (task) {
+    console.log(`[Proxy] Download in progress: ${task.currentSize}/${task.totalSize}`);
+    if (requestedRange && task.totalSize > 0) {
+      const range = parseRangeHeader(requestedRange, task.totalSize);
+      if (range) {
+        const safeEnd = Math.floor(task.currentSize * 0.95);
+        if (range.end < safeEnd && range.start < safeEnd) {
+          console.log(`[Proxy] Serving range ${range.start}-${range.end} from partial cache (downloaded: ${task.currentSize})`);
+          if (serveFromPartialCache(req, res, cacheFilePath, task)) {
+            return;
+          }
+        }
+        console.log(`[Proxy] Range ${range.start}-${range.end} not cached yet (downloaded: ${task.currentSize}), proxying directly`);
+        await proxyRangeDirect(req, res, targetUrl, task.totalSize, task.contentType);
         return;
       }
     }
-    await proxyWithoutCache(req, res, targetUrl);
+    await proxyRangeDirect(req, res, targetUrl, task.totalSize, task.contentType);
     return;
   }
-  if (requestedRange && !requestedRange.startsWith("bytes=0-")) {
-    console.log(`[Proxy] Range request without cache: ${requestedRange}`);
-    await proxyWithoutCache(req, res, targetUrl);
+  if (isSeekRequest) {
+    console.log(`[Proxy] Seek request: ${requestedRange}, starting background download`);
+    startBackgroundDownload(targetUrl, cacheFilePath);
+    const headResponse = await fetch(targetUrl, {
+      method: "HEAD",
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+      }
+    });
+    const totalSize = parseInt(headResponse.headers.get("content-length") || "0", 10);
+    const contentType2 = headResponse.headers.get("content-type") || "audio/mpeg";
+    await proxyRangeDirect(req, res, targetUrl, totalSize, contentType2);
     return;
   }
   const headers = {
@@ -392,8 +562,10 @@ async function proxyAndCache(req, res, targetUrl, cacheFilePath) {
   const contentType = response.headers.get("content-type") || "audio/mpeg";
   if (!contentLength) {
     console.warn("[Proxy] No content-length, proxying without cache");
-    res.setHeader("Content-Type", contentType);
-    res.statusCode = 200;
+    res.writeHead(200, {
+      "Content-Type": contentType,
+      "Accept-Ranges": "bytes"
+    });
     if (response.body) {
       const nodeStream2 = Readable.fromWeb(response.body);
       nodeStream2.pipe(res);
@@ -402,20 +574,22 @@ async function proxyAndCache(req, res, targetUrl, cacheFilePath) {
     }
     return;
   }
-  const tempPath = cacheFilePath + ".tmp";
+  const tempPath = getTempPath(cacheFilePath);
   try {
     if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
     if (fs.existsSync(cacheFilePath)) fs.unlinkSync(cacheFilePath);
-  } catch (e) {
-    console.error("[Proxy] Cleanup error:", e);
+  } catch {
   }
   const fileStream = fs.createWriteStream(tempPath);
-  downloadingFiles.set(cacheFilePath, {
+  task = {
     currentSize: 0,
     totalSize: contentLength,
-    writeStream: fileStream
-  });
-  console.log(`[Proxy] Starting download: ${cacheFilePath} (${contentLength} bytes)`);
+    contentType,
+    abortController: null,
+    promise: null
+  };
+  downloadTasks.set(cacheFilePath, task);
+  console.log(`[Proxy] Starting stream download: ${cacheFilePath} (${contentLength} bytes)`);
   res.writeHead(200, {
     "Content-Length": contentLength,
     "Content-Type": contentType,
@@ -423,24 +597,21 @@ async function proxyAndCache(req, res, targetUrl, cacheFilePath) {
   });
   if (!response.body) {
     res.end();
-    downloadingFiles.delete(cacheFilePath);
+    downloadTasks.delete(cacheFilePath);
     return;
   }
   const nodeStream = Readable.fromWeb(response.body);
   const passThrough = new PassThrough();
-  let downloadedBytes = 0;
   passThrough.on("data", (chunk) => {
-    downloadedBytes += chunk.length;
-    const state = downloadingFiles.get(cacheFilePath);
-    if (state) {
-      state.currentSize = downloadedBytes;
+    if (task) {
+      task.currentSize += chunk.length;
     }
   });
   passThrough.pipe(res);
   nodeStream.pipe(passThrough);
   nodeStream.pipe(fileStream);
   const cleanup = (success, error) => {
-    downloadingFiles.delete(cacheFilePath);
+    downloadTasks.delete(cacheFilePath);
     if (success && fs.existsSync(tempPath)) {
       try {
         const stat = fs.statSync(tempPath);
@@ -469,25 +640,83 @@ async function proxyAndCache(req, res, targetUrl, cacheFilePath) {
       }
     } else if (!success) {
       console.error("[Proxy] Download failed:", error);
-      try {
-        fs.unlinkSync(tempPath);
-      } catch {
-      }
     }
   };
   fileStream.on("finish", () => cleanup(true));
   fileStream.on("error", (err) => cleanup(false, err));
-  nodeStream.on("error", (err) => cleanup(false, err));
+  nodeStream.on("error", (err) => {
+    cleanup(false, err);
+    if (!res.headersSent) {
+      res.writeHead(502);
+      res.end("Proxy stream error");
+    }
+  });
   res.on("close", () => {
     if (!res.writableEnded) {
-      console.log("[Proxy] Client disconnected during download");
+      console.log("[Proxy] Client disconnected, download continues in background");
     }
   });
 }
 let persistCacheEnabled = true;
+function getCacheDir() {
+  return ensureCacheDir();
+}
+function getCacheSize() {
+  const dir = ensureCacheDir();
+  if (!fs.existsSync(dir)) return "0 B";
+  let totalSize = 0;
+  try {
+    const files = fs.readdirSync(dir);
+    for (const file of files) {
+      const filePath = path.join(dir, file);
+      try {
+        const stat = fs.statSync(filePath);
+        if (stat.isFile()) {
+          totalSize += stat.size;
+        }
+      } catch {
+      }
+    }
+  } catch (e) {
+    console.error("[Proxy] Error calculating cache size:", e);
+  }
+  if (totalSize < 1024) return `${totalSize} B`;
+  if (totalSize < 1024 * 1024) return `${(totalSize / 1024).toFixed(1)} KB`;
+  if (totalSize < 1024 * 1024 * 1024) return `${(totalSize / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(totalSize / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+function setPersistCache(persist) {
+  persistCacheEnabled = persist;
+  console.log(`[Proxy] Cache persistence set to: ${persist}`);
+}
+function clearCacheNow() {
+  const dir = ensureCacheDir();
+  if (fs.existsSync(dir)) {
+    console.log(`[Proxy] Clearing cache directory: ${dir}`);
+    for (const [, task] of downloadTasks) {
+      if (task.abortController) {
+        task.abortController.abort();
+      }
+    }
+    downloadTasks.clear();
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+      fs.mkdirSync(dir, { recursive: true });
+      console.log("[Proxy] Cache cleared");
+    } catch (e) {
+      console.error("[Proxy] Failed to clear cache:", e);
+    }
+  }
+}
 function cleanupCache() {
   if (!persistCacheEnabled && CACHE_DIR && fs.existsSync(CACHE_DIR)) {
     console.log(`[Proxy] Cleaning up cache directory: ${CACHE_DIR}`);
+    for (const [, task] of downloadTasks) {
+      if (task.abortController) {
+        task.abortController.abort();
+      }
+    }
+    downloadTasks.clear();
     try {
       fs.rmSync(CACHE_DIR, { recursive: true, force: true });
       console.log("[Proxy] Cache cleanup complete");
@@ -496,9 +725,35 @@ function cleanupCache() {
     }
   }
 }
+function cleanupTempFiles() {
+  const dir = ensureCacheDir();
+  try {
+    const files = fs.readdirSync(dir);
+    const now = Date.now();
+    for (const file of files) {
+      if (file.endsWith(".tmp")) {
+        const filePath = path.join(dir, file);
+        const cacheFilePath = filePath.replace(".tmp", "");
+        if (!downloadTasks.has(cacheFilePath)) {
+          try {
+            const stat = fs.statSync(filePath);
+            if (now - stat.mtimeMs > 3600 * 1e3) {
+              fs.unlinkSync(filePath);
+              console.log(`[Proxy] Cleaned up stale temp file: ${file}`);
+            }
+          } catch {
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.error("[Proxy] Error cleaning up temp files:", e);
+  }
+}
 function startProxyServer(persistCache = true) {
   persistCacheEnabled = persistCache;
   console.log(`[Proxy] Persist cache: ${persistCache}`);
+  setInterval(cleanupTempFiles, 30 * 60 * 1e3);
   const server = http.createServer(async (req, res) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
@@ -556,13 +811,33 @@ function startProxyServer(persistCache = true) {
         res.end("Failed to Obtain URL");
         return;
       }
-      try {
-        await proxyAndCache(req, res, playUrl, cacheFilePath);
-      } catch (e) {
-        console.warn(`[Proxy] Proxy error:`, e);
-        if (!res.headersSent) {
-          res.writeHead(e.statusCode || 502);
-          res.end("Proxy Error");
+      const maxAttempts = 3;
+      let currentAttempt = 0;
+      let lastError = null;
+      while (currentAttempt < maxAttempts) {
+        try {
+          await proxyAndCache(req, res, playUrl, cacheFilePath, cacheKey);
+          break;
+        } catch (e) {
+          lastError = e;
+          currentAttempt++;
+          console.warn(`[Proxy] Proxy error (Attempt ${currentAttempt}/${maxAttempts}):`, e);
+          if (currentAttempt < maxAttempts) {
+            console.log("[Proxy] Error occurred, refreshing URL from plugin...");
+            urlCache.delete(cacheKey);
+            const newUrl = await fetchFreshUrl(source, id, quality);
+            if (newUrl) {
+              playUrl = newUrl;
+              continue;
+            } else {
+              console.error("[Proxy] Failed to refresh URL");
+            }
+          }
+          if (!res.headersSent) {
+            res.writeHead((lastError == null ? void 0 : lastError.statusCode) || 502);
+            res.end("Proxy Error");
+          }
+          break;
         }
       }
     } catch (err) {
@@ -575,12 +850,53 @@ function startProxyServer(persistCache = true) {
   });
   server.listen(PORT, "127.0.0.1", () => {
     ensureCacheDir();
+    cleanupTempFiles();
     console.log(`[Proxy] Server running at http://127.0.0.1:${PORT}/music`);
     console.log(`[Proxy] Cache dir: ${CACHE_DIR}`);
   });
   return server;
 }
-createRequire(import.meta.url);
+const DEFAULT_SETTINGS = {
+  persistCache: true,
+  theme: "dark",
+  accentColor: "#ec4141"
+  // Default red
+};
+let settingsCache = null;
+function getSettingsPath() {
+  return path.join(app.getPath("userData"), "settings.json");
+}
+function loadSettings() {
+  if (settingsCache) return settingsCache;
+  const settingsPath = getSettingsPath();
+  try {
+    if (fs.existsSync(settingsPath)) {
+      const data = fs.readFileSync(settingsPath, "utf-8");
+      settingsCache = { ...DEFAULT_SETTINGS, ...JSON.parse(data) };
+      console.log("[Settings] Loaded from disk:", settingsCache);
+      return settingsCache;
+    }
+  } catch (e) {
+    console.error("[Settings] Failed to load settings:", e);
+  }
+  settingsCache = { ...DEFAULT_SETTINGS };
+  return settingsCache;
+}
+function saveSettings(settings) {
+  settingsCache = { ...loadSettings(), ...settings };
+  const settingsPath = getSettingsPath();
+  try {
+    fs.writeFileSync(settingsPath, JSON.stringify(settingsCache, null, 2));
+    console.log("[Settings] Saved to disk:", settingsCache);
+  } catch (e) {
+    console.error("[Settings] Failed to save settings:", e);
+  }
+  return settingsCache;
+}
+function getSetting(key) {
+  return loadSettings()[key];
+}
+const require$1 = createRequire(import.meta.url);
 const __dirname$1 = path$1.dirname(fileURLToPath(import.meta.url));
 process.env.APP_ROOT = path$1.join(__dirname$1, "..");
 const VITE_DEV_SERVER_URL = process.env["VITE_DEV_SERVER_URL"];
@@ -646,6 +962,43 @@ ipcMain.handle(
     return await plugin[method](...args);
   }
 );
+ipcMain.handle("cache:getInfo", () => {
+  const settings = loadSettings();
+  return {
+    path: getCacheDir(),
+    size: getCacheSize(),
+    persistCache: settings.persistCache
+  };
+});
+ipcMain.handle("cache:setPersist", (_, persist) => {
+  setPersistCache(persist);
+  saveSettings({ persistCache: persist });
+});
+ipcMain.handle("cache:openFolder", () => {
+  const dir = getCacheDir();
+  require$1("electron").shell.openPath(dir);
+});
+ipcMain.handle("cache:clear", () => {
+  clearCacheNow();
+});
+ipcMain.handle("settings:getAll", () => {
+  return loadSettings();
+});
+ipcMain.handle("settings:set", (_, settings) => {
+  return saveSettings(settings);
+});
+ipcMain.handle("settings:getTheme", () => {
+  return getSetting("theme");
+});
+ipcMain.handle("settings:setTheme", (_, theme) => {
+  saveSettings({ theme });
+});
+ipcMain.handle("settings:getAccentColor", () => {
+  return getSetting("accentColor");
+});
+ipcMain.handle("settings:setAccentColor", (_, color) => {
+  saveSettings({ accentColor: color });
+});
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
     app.quit();

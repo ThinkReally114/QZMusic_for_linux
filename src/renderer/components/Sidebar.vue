@@ -104,7 +104,7 @@ const togglePlaylists = () => {
   flex-shrink: 0;
 }
 
-/* 滚动条样式 */
+/* 滚动条样式 - 默认隐藏，悬停时显示 */
 .sidebar::-webkit-scrollbar {
   width: 6px;
 }
@@ -114,11 +114,16 @@ const togglePlaylists = () => {
 }
 
 .sidebar::-webkit-scrollbar-thumb {
-  background: var(--color-border-light);
+  background: transparent;
   border-radius: 3px;
+  transition: background 0.2s ease;
 }
 
-.sidebar::-webkit-scrollbar-thumb:hover {
+.sidebar:hover::-webkit-scrollbar-thumb {
+  background: var(--color-border-light);
+}
+
+.sidebar:hover::-webkit-scrollbar-thumb:hover {
   background: var(--color-text-muted);
 }
 
@@ -184,7 +189,6 @@ const togglePlaylists = () => {
 .nav-item:hover {
   background-color: var(--color-bg-tertiary);
   color: var(--color-text-primary);
-  transform: translateX(2px);
 }
 
 .nav-item.active {
@@ -193,17 +197,6 @@ const togglePlaylists = () => {
   font-weight: 500;
 }
 
-.nav-item.active::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 3px;
-  height: 20px;
-  background-color: var(--color-accent);
-  border-radius: 0 2px 2px 0;
-}
 
 .nav-icon {
   width: 20px;
@@ -213,9 +206,6 @@ const togglePlaylists = () => {
   transition: transform var(--transition-base);
 }
 
-.nav-item:hover .nav-icon {
-  transform: scale(1.1);
-}
 
 .nav-text {
   font-size: var(--font-size-sm);

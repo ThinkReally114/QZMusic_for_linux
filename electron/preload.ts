@@ -22,5 +22,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // Plugin System
     plugin: {
         call: (pluginId: string, method: string, args: any[]) => ipcRenderer.invoke('plugin:call', pluginId, method, args)
+    },
+
+    // Cache Control
+    getCacheInfo: () => ipcRenderer.invoke('cache:getInfo'),
+    setCachePersist: (persist: boolean) => ipcRenderer.invoke('cache:setPersist', persist),
+    openCacheFolder: () => ipcRenderer.invoke('cache:openFolder'),
+    clearCache: () => ipcRenderer.invoke('cache:clear'),
+
+    // Settings
+    settings: {
+        getAll: () => ipcRenderer.invoke('settings:getAll'),
+        set: (settings: any) => ipcRenderer.invoke('settings:set', settings),
+        getTheme: () => ipcRenderer.invoke('settings:getTheme'),
+        setTheme: (theme: 'dark' | 'light') => ipcRenderer.invoke('settings:setTheme', theme),
+        getAccentColor: () => ipcRenderer.invoke('settings:getAccentColor'),
+        setAccentColor: (color: string) => ipcRenderer.invoke('settings:setAccentColor', color)
     }
 })

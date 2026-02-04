@@ -24,7 +24,7 @@
 
     <div class="right-controls">
       <div class="app-actions">
-        <button class="action-btn ripple-btn" title="设置">
+        <button class="action-btn ripple-btn" title="设置" @click="openSettings">
           <Icon icon="lucide:settings" class="action-icon" />
         </button>
       </div>
@@ -49,7 +49,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, onMounted, onUnmounted, inject } from 'vue';
 import { useRouter } from 'vue-router';
 import { Icon } from '@iconify/vue';
 
@@ -58,6 +58,9 @@ const isMaximized = ref(false);
 
 const goBack = () => router.back();
 const goForward = () => router.forward();
+
+// Settings
+const openSettings = inject<() => void>('openSettings', () => {});
 
 // --- 窗口控制逻辑 ---
 const handleMinimize = () => window.electronAPI?.minimizeWindow();
@@ -135,7 +138,6 @@ onUnmounted(() => {
 
   color: var(--color-text-secondary);
   background-color: transparent;
-  border: 1px solid var(--color-border);
   cursor: pointer;
 
   position: relative;
@@ -151,7 +153,6 @@ onUnmounted(() => {
 .nav-btn:hover,
 .action-btn:hover {
   background-color: var(--color-bg-tertiary);
-  border-color: var(--color-text-muted);
   color: var(--color-text-primary);
 }
 

@@ -180,7 +180,7 @@ const formatTime = (seconds: number) => {
   left: 0;
   width: 100%;
   height: 80px; /* Established height */
-  background-color: rgba(24, 24, 24, 0.95); /* Semi-transparent dark bg */
+  background-color: var(--color-bg-secondary);
   backdrop-filter: blur(20px);
   border-top: 1px solid var(--color-border);
   display: flex;
@@ -188,7 +188,8 @@ const formatTime = (seconds: number) => {
   justify-content: space-between;
   padding: 0 24px;
   z-index: 1000;
-  box-shadow: 0 -4px 20px rgba(0,0,0,0.4);
+  box-shadow: 0 -4px 20px rgba(0,0,0,0.15);
+  transition: var(--theme-transition);
 }
 
 /* Animations */
@@ -216,13 +217,16 @@ const formatTime = (seconds: number) => {
   position: relative;
   width: 64px;
   height: 64px;
+  min-width: 64px;
+  min-height: 64px;
+  flex-shrink: 0;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  /* Vinyl Background Simulation or Image */
-  background: radial-gradient(circle, #1a1a1a 30%, #333 31%, #111 32%, #181818 100%);
-  box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+  /* Dark background for vinyl effect */
+  background: #1a1a1a;
+  box-shadow: var(--shadow-md);
   animation: spin 10s linear infinite;
   animation-play-state: paused;
 }
@@ -231,7 +235,7 @@ const formatTime = (seconds: number) => {
   animation-play-state: running;
 }
 
-/* Use the user specific path if available, or fallback to CSS vinyl look */
+/* Vinyl overlay (Background) */
 .vinyl-bg {
   position: absolute;
   top: 0;
@@ -239,27 +243,30 @@ const formatTime = (seconds: number) => {
   width: 100%;
   height: 100%;
   border-radius: 50%;
-  background-image: url('@/assets/miniYinyl.png'); /* User requested path */
+  background-image: url('https://s5.music.126.net/static_public/68aea63daca57500bb3fb4b6_68aea63daca57500bb3fb4b7/public/assets/img/play/miniVinyl.png');
   background-size: cover;
   opacity: 1;
   pointer-events: none;
-  z-index: 2;
+  z-index: 1;
 }
 
+/* Album art (Foreground) */
 .album-art {
-  width: 51px;
-  height: 51px;
+  width: 42px;
+  height: 42px;
   border-radius: 50%;
   object-fit: cover;
-  z-index: 1;
+  z-index: 10;
+  position: relative; /* Ensure z-index applies */
 }
 
 .album-placeholder {
-  width: 51px;
-  height: 51px;
+  width: 42px;
+  height: 42px;
   border-radius: 50%;
-  background: #333;
-  z-index: 1;
+  background: var(--color-bg-tertiary);
+  z-index: 10;
+  position: relative; /* Ensure z-index applies */
 }
 
 @keyframes spin {

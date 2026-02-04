@@ -4,8 +4,9 @@ import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import fs from 'node:fs'
 import { MpvController } from './mpvController'
-import { startProxyServer, cleanupCache } from './proxyServer'
+import { startProxyServer, cleanupCache, getCacheDir, getCacheSize, setPersistCache, clearCacheNow } from './proxyServer'
 import { PluginSystem } from '../src/main/pluginSystem.ts'
+import { loadSettings, saveSettings, getSetting, AppSettings } from './settingsStore'
 // @ts-ignore
 const require = createRequire(import.meta.url)
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -90,6 +91,55 @@ ipcMain.handle(
         return await (plugin as any)[method](...args)
     }
 )
+
+// Cache IPC Handlers
+ipcMain.handle('cache:getInfo', () => {
+    const settings = loadSettings();
+    return {
+        path: getCacheDir(),
+        size: getCacheSize(),
+        persistCache: settings.persistCache
+    }
+})
+
+ipcMain.handle('cache:setPersist', (_, persist: boolean) => {
+    setPersistCache(persist)
+    saveSettings({ persistCache: persist })
+})
+
+ipcMain.handle('cache:openFolder', () => {
+    const dir = getCacheDir()
+    require('electron').shell.openPath(dir)
+})
+
+ipcMain.handle('cache:clear', () => {
+    clearCacheNow()
+})
+
+// Settings IPC Handlers
+ipcMain.handle('settings:getAll', () => {
+    return loadSettings()
+})
+
+ipcMain.handle('settings:set', (_, settings: Partial<AppSettings>) => {
+    return saveSettings(settings)
+})
+
+ipcMain.handle('settings:getTheme', () => {
+    return getSetting('theme')
+})
+
+ipcMain.handle('settings:setTheme', (_, theme: 'dark' | 'light') => {
+    saveSettings({ theme })
+})
+
+ipcMain.handle('settings:getAccentColor', () => {
+    return getSetting('accentColor')
+})
+
+ipcMain.handle('settings:setAccentColor', (_, color: string) => {
+    saveSettings({ accentColor: color })
+})
 
 app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') {
