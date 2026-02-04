@@ -397,7 +397,24 @@ async function proxyAndCache(
     });
 }
 
-export function startProxyServer() {
+let persistCacheEnabled = true;
+
+export function cleanupCache() {
+    if (!persistCacheEnabled && CACHE_DIR && fs.existsSync(CACHE_DIR)) {
+        console.log(`[Proxy] Cleaning up cache directory: ${CACHE_DIR}`);
+        try {
+            fs.rmSync(CACHE_DIR, { recursive: true, force: true });
+            console.log('[Proxy] Cache cleanup complete');
+        } catch (e) {
+            console.error('[Proxy] Failed to cleanup cache:', e);
+        }
+    }
+}
+
+export function startProxyServer(persistCache: boolean = true) {
+    persistCacheEnabled = persistCache;
+    console.log(`[Proxy] Persist cache: ${persistCache}`);
+
     const server = http.createServer(async (req, res) => {
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');

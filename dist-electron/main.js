@@ -357,9 +357,6 @@ async function proxyAndCache(req, res, targetUrl, cacheFilePath) {
       const range = parseRangeHeader(requestedRange, downloadState.totalSize);
       if (range && range.end < downloadState.currentSize) {
         console.log(`[Proxy] Serving range from in-progress cache`);
-        ({
-          totalSize: downloadState.totalSize
-        });
         const { start, end } = range;
         const chunksize = end - start + 1;
         res.writeHead(206, {
@@ -487,7 +484,21 @@ async function proxyAndCache(req, res, targetUrl, cacheFilePath) {
     }
   });
 }
-function startProxyServer() {
+let persistCacheEnabled = true;
+function cleanupCache() {
+  if (!persistCacheEnabled && CACHE_DIR && fs.existsSync(CACHE_DIR)) {
+    console.log(`[Proxy] Cleaning up cache directory: ${CACHE_DIR}`);
+    try {
+      fs.rmSync(CACHE_DIR, { recursive: true, force: true });
+      console.log("[Proxy] Cache cleanup complete");
+    } catch (e) {
+      console.error("[Proxy] Failed to cleanup cache:", e);
+    }
+  }
+}
+function startProxyServer(persistCache = true) {
+  persistCacheEnabled = persistCache;
+  console.log(`[Proxy] Persist cache: ${persistCache}`);
   const server = http.createServer(async (req, res) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
@@ -642,6 +653,7 @@ app.on("window-all-closed", () => {
   }
 });
 app.on("will-quit", () => {
+  cleanupCache();
   if (mpv) {
     mpv.destroy();
   }

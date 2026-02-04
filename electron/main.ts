@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import fs from 'node:fs'
 import { MpvController } from './mpvController'
-import { startProxyServer } from './proxyServer'
+import { startProxyServer, cleanupCache } from './proxyServer'
 import { PluginSystem } from '../src/main/pluginSystem.ts'
 // @ts-ignore
 const require = createRequire(import.meta.url)
@@ -99,6 +99,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('will-quit', () => {
+    cleanupCache()
     if (mpv) {
         mpv.destroy()
     }
@@ -132,6 +133,7 @@ app.on('activate', () => {
     }
 })
 
+// Test
 app.whenReady().then(() => {
     // Ensure plugins directory exists
     const pluginsPath = path.join(app.getPath('userData'), 'plugins')
