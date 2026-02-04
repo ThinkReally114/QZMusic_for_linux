@@ -25,10 +25,14 @@
 
 ## 🛠 开发者(排名不分先后)
 - (以下内容实时更新,更新日期:2026.1.21)
-- 落花晴雨 ([TeAnli](https://github.com/TeAnli)) | UI开发/设计
-- -蜻蜓T-T ([B站](https://space.bilibili.com/3546554124209112) [Github](https://github.com/lqtmcstudio)) | 插件系统 音频系统 部分UI 后端
+- -蜻蜓T-T ([B站](https://space.bilibili.com/3546554124209112) [Github](https://github.com/lqtmcstudio)) | 插件系统 音频系统 UI设计/开发 后端
 - 时迁酱 ([个人主页](https://shiqianjiang.cn)) 登录/鉴权系统 
 
 ## 📄 开源协议
 
 本项目采用 [**AGPL v3**](https://github.com/lqtmcstudio/QZMusic_PC/blob/master/LICENSE) 开源协议。
+
+## 使用工具
+
+[**WebStorm**](https://www.jetbrains.com/webstorm/): Make development more productive and enjoyable.
+[**Antigravity**](https://antigravity.google/): Experience liftoff with the next-generation IDE
