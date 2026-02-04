@@ -36,6 +36,7 @@ export const usePlayerStore = defineStore('player', () => {
     // Error Handling
     const playErrorCount = ref(0);
     const MAX_RETRY_COUNT = 3;
+    const hasRetriedWithFreshUrl = ref(false);
 
     // --- Helpers ---
 
@@ -69,37 +70,7 @@ export const usePlayerStore = defineStore('player', () => {
 
     // --- Actions ---
 
-    // Cache: key = `${source}:${id}:${quality}`
-    const urlCache = new Map<string, string>();
 
-    const fetchUrl = async (song: Song, forceRefresh = false): Promise<string | null> => {
-        if (!song.source || !song.id) return null;
-
-        const quality = 'hires'; // TODO: Make configurable
-        const cacheKey = `${song.source}:${song.id}:${quality}`;
-
-        if (!forceRefresh && urlCache.has(cacheKey)) {
-            console.log(`[Cache] Hit for ${song.name}`);
-            return urlCache.get(cacheKey) || null;
-        }
-
-        console.log(`[Plugin] Fetching URL for [${song.name}] from ${song.source}...`);
-        try {
-            const result = await window.electronAPI.plugin.call(song.source, 'getUrl', [song.id, quality]);
-            if (result.success && result.url) {
-                console.log('[Plugin] Success:', result.url);
-                urlCache.set(cacheKey, result.url);
-                return result.url;
-            } else {
-                console.error('[Plugin] Failed:', result.error);
-                if (!forceRefresh) MessagePlugin.error(`无法获取播放链接: ${result.error || '未知错误'}`);
-                return null;
-            }
-        } catch (e) {
-            console.error('[Plugin] Error:', e);
-            return null;
-        }
-    };
 
     const setPlaylist = async (list: any[], startIndex = 0) => {
         playlist.value = list;
@@ -124,38 +95,24 @@ export const usePlayerStore = defineStore('player', () => {
         // 1. Get URL (Cache -> Network)
         let playUrl = song.url;
         if (song.type === 'Remote' && song.source) {
-            const fetched = await fetchUrl(song);
-            if (fetched) playUrl = fetched;
+            // Use Local Proxy
+            const quality = 'hires';
+            playUrl = `http://localhost:5266/music?source=${song.source}&id=${song.id}&quality=${quality}`;
+            console.log('[Player] Using Proxy:', playUrl);
         }
 
         if (playUrl) {
             console.log('Playing:', song.name);
+            // Reset retry flag for new playback attempt
+            hasRetriedWithFreshUrl.value = false;
             try {
                 await window.electronAPI.mpv.load(playUrl);
                 await window.electronAPI.mpv.play();
                 isPlaying.value = true;
-                // Update song object URL for UI reference if needed
                 song.url = playUrl;
             } catch (e) {
-                console.error("Play request failed:", e);
-
-                // Retry Logic: If Remote and failed, force refresh URL and retry
-                if (song.type === 'Remote' && song.source) {
-                    console.warn("Playback failed. Retrying with fresh URL...");
-                    const freshUrl = await fetchUrl(song, true); // Force Refresh
-                    if (freshUrl) {
-                        try {
-                            await window.electronAPI.mpv.load(freshUrl);
-                            await window.electronAPI.mpv.play();
-                            isPlaying.value = true;
-                            song.url = freshUrl;
-                            return; // Success on retry
-                        } catch (retryError) {
-                            console.error("Retry playback failed:", retryError);
-                        }
-                    }
-                }
-
+                // IPC call failed (rare), handle sync error
+                console.error("IPC Play request failed:", e);
                 handlePlayError();
             }
         } else {
@@ -212,8 +169,14 @@ export const usePlayerStore = defineStore('player', () => {
         await playSong(playlist.value[prevIndex]);
     };
 
-    const handlePlayError = () => {
+    const handlePlayError = async () => {
+        // Proxy handles refreshing internally, so we rely on MPV error/retry for now.
+        // Or we could implement a mechanism to tell proxy to invalidate cache if this fails repeatedly (future work).
+
+        // Normal error handling
         playErrorCount.value++;
+        hasRetriedWithFreshUrl.value = false; // Reset for next song
+
         if (playlist.value.length === 0) {
             isPlaying.value = false;
             playErrorCount.value = 0;
@@ -228,7 +191,7 @@ export const usePlayerStore = defineStore('player', () => {
             syncDummyAudioState(false);
         } else {
             MessagePlugin.warning(`播放失败，尝试播放下一首 (${playErrorCount.value}/${MAX_RETRY_COUNT})`);
-            setTimeout(() => next(false), 1000);
+            setTimeout(() => next(false), 500);
         }
     };
 

@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import fs from 'node:fs'
 import { MpvController } from './mpvController'
+import { startProxyServer } from './proxyServer'
 import { PluginSystem } from '../src/main/pluginSystem.ts'
 // @ts-ignore
 const require = createRequire(import.meta.url)
@@ -162,6 +163,9 @@ module.exports = {
 
     Menu.setApplicationMenu(null)
     createWindow()
+
+    // Start Proxy Server
+    startProxyServer()
 
     // Start MPV
     mpv = new MpvController()

@@ -41,7 +41,11 @@ export class MpvController extends EventEmitter {
             '--force-window=no',
             '--no-media-controls',
             `--input-ipc-server=${this.ipcPath}`,
-            '--no-terminal'
+            '--no-terminal',
+            // Network cache for smooth playback (disk caching is handled by proxy)
+            '--cache=yes',
+            '--demuxer-max-bytes=50MiB',
+            '--demuxer-readahead-secs=30'
         ]);
 
         this.process.on('error', (err) => {
@@ -82,7 +86,7 @@ export class MpvController extends EventEmitter {
                 this.handleData(data);
             });
 
-            this.socket.on('error', (err) => {
+            this.socket.on('error', (_) => {
                 this.socket?.destroy();
                 this.tryConnect(retries - 1);
             });
