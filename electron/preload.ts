@@ -7,16 +7,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     closeWindow: () => ipcRenderer.send('window-close'),
     isMaximized: () => ipcRenderer.invoke('window-is-maximized'),
 
-    // MPV Control
-    mpv: {
-        load: (url: string) => ipcRenderer.invoke('mpv-load', url),
-        play: () => ipcRenderer.invoke('mpv-play'),
-        pause: () => ipcRenderer.invoke('mpv-pause'),
-        togglePause: () => ipcRenderer.invoke('mpv-toggle-pause'),
-        stop: () => ipcRenderer.invoke('mpv-stop'),
-        setVolume: (vol: number) => ipcRenderer.invoke('mpv-set-volume', vol),
-        seek: (time: number) => ipcRenderer.invoke('mpv-seek', time),
-        onEvent: (callback: (event: any, data: any) => void) => ipcRenderer.on('mpv-event', callback)
+    // qzplayer Control
+    qzplayer: {
+        load: (url: string) => ipcRenderer.invoke('qzplayer-load', url),
+        play: () => ipcRenderer.invoke('qzplayer-play'),
+        pause: () => ipcRenderer.invoke('qzplayer-pause'),
+        togglePause: () => ipcRenderer.invoke('qzplayer-toggle-pause'),
+        stop: () => ipcRenderer.invoke('qzplayer-stop'),
+        setVolume: (vol: number) => ipcRenderer.invoke('qzplayer-set-volume', vol),
+        seek: (time: number) => ipcRenderer.invoke('qzplayer-seek', time),
+        onEvent: (callback: (event: any, data: any) => void) => ipcRenderer.on('qzplayer-event', callback)
     },
 
     // Plugin System

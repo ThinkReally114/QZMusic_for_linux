@@ -3,7 +3,7 @@ export interface IElectronAPI {
     maximizeWindow: () => void;
     closeWindow: () => void;
     isMaximized: () => Promise<boolean>;
-    mpv: {
+    qzplayer: {
         load: (url: string) => Promise<void>;
         play: () => Promise<void>;
         pause: () => Promise<void>;

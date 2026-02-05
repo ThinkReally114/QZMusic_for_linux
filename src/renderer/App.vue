@@ -1,5 +1,6 @@
 <template>
   <MainLayout />
+  <FullScreenPlayer />
   <Settings v-if="showSettings" @close="showSettings = false" />
 </template>
 
@@ -7,6 +8,7 @@
 import { ref, provide, onMounted } from 'vue';
 import MainLayout from './layout/MainLayout.vue';
 import Settings from './components/Settings.vue';
+import FullScreenPlayer from './components/FullScreenPlayer.vue';
 
 const showSettings = ref(false);
 

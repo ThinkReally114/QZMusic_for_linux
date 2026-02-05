@@ -1,12 +1,19 @@
 import { defineConfig } from 'vite'
+import vueJsx from "@vitejs/plugin-vue-jsx";
 import path from 'node:path'
 import electron from 'vite-plugin-electron/simple'
 import vue from '@vitejs/plugin-vue'
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  resolve: {
+    alias: {
+      url: 'url',
+    },
+  },
   plugins: [
     vue(),
+    vueJsx(),
     electron({
       main: {
         // Shortcut of `build.lib.entry`.
@@ -26,4 +33,7 @@ export default defineConfig({
         : {},
     }),
   ],
+  server: {
+    host: '0.0.0.0',
+  }
 })

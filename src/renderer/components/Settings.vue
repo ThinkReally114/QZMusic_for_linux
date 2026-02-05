@@ -155,7 +155,7 @@
                 <div class="app-logo">🎶</div>
                 <h3>QZ Music</h3>
                 <p class="version">版本 1.0.0</p>
-                <p class="copyright">© 2024 QZ Music Team</p>
+                <p class="copyright">©2026 QZ <DEVELOPERS></DEVELOPERS></p>
               </div>
             </div>
           </div>

@@ -1,6 +1,6 @@
 <template>
   <transition name="slide-up">
-    <div class="player-bar" v-if="hasSongs">
+    <div class="player-bar" v-if="hasSongs" @click="handleBarClick">
       <!-- Left: Vinyl & Info -->
       <div class="player-left">
         <div class="vinyl-wrapper" :class="{ 'playing': isPlaying }">
@@ -162,6 +162,20 @@ const onVolumeChange = (e: Event) => {
 const toggleMute = () => {
     if (volume.value > 0) playerStore.setVolume(0);
     else playerStore.setVolume(50);
+};
+
+const handleBarClick = (e: MouseEvent) => {
+    // Prevent triggering when clicking on controls/inputs
+    const target = e.target as HTMLElement;
+    if (
+        target.closest('button') || 
+        target.closest('input') || 
+        target.closest('.icon-btn') || 
+        target.closest('.play-btn')
+    ) {
+        return;
+    }
+    playerStore.toggleFullScreen();
 };
 
 // Utils

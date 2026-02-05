@@ -3,7 +3,7 @@ import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import fs from 'node:fs'
-import { MpvController } from './mpvController'
+import { QzpController } from './qzpController.ts'
 import { startProxyServer, cleanupCache, getCacheDir, getCacheSize, setPersistCache, clearCacheNow } from './proxyServer'
 import { PluginSystem } from '../src/main/pluginSystem.ts'
 import { loadSettings, saveSettings, getSetting, AppSettings } from './settingsStore'
@@ -20,7 +20,7 @@ export const RENDERER_DIST = path.join(process.env.APP_ROOT, 'dist')
 process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, 'public') : RENDERER_DIST
 
 let win: BrowserWindow | null
-let mpv: MpvController | null
+let qzplayer: QzpController | null
 
 // === Electron 窗口逻辑 ===
 
@@ -59,21 +59,21 @@ ipcMain.on('window-maximize', () => win?.isMaximized() ? win.unmaximize() : win?
 ipcMain.on('window-close', () => win?.close())
 ipcMain.handle('window-is-maximized', () => win?.isMaximized() || false)
 
-// --- MPV IPC Handlers ---
-ipcMain.handle('mpv-command', async (_, command: any[]) => {
-    if (mpv) {
-        mpv.send(command)
+// --- qzplayer IPC Handlers ---
+ipcMain.handle('qzplayer-command', async (_, command: any[]) => {
+    if (qzplayer) {
+        qzplayer.send(command)
     }
 })
 
 // Quick Helpers
-ipcMain.handle('mpv-load', (_, url) => mpv?.load(url))
-ipcMain.handle('mpv-play', () => mpv?.play())
-ipcMain.handle('mpv-pause', () => mpv?.pause())
-ipcMain.handle('mpv-toggle-pause', () => mpv?.togglePause())
-ipcMain.handle('mpv-stop', () => mpv?.stop())
-ipcMain.handle('mpv-set-volume', (_, vol) => mpv?.setVolume(vol))
-ipcMain.handle('mpv-seek', (_, time) => mpv?.seek(time))
+ipcMain.handle('qzplayer-load', (_, url) => qzplayer?.load(url))
+ipcMain.handle('qzplayer-play', () => qzplayer?.play())
+ipcMain.handle('qzplayer-pause', () => qzplayer?.pause())
+ipcMain.handle('qzplayer-toggle-pause', () => qzplayer?.togglePause())
+ipcMain.handle('qzplayer-stop', () => qzplayer?.stop())
+ipcMain.handle('qzplayer-set-volume', (_, vol) => qzplayer?.setVolume(vol))
+ipcMain.handle('qzplayer-seek', (_, time) => qzplayer?.seek(time))
 
 // PluginSystem
 ipcMain.handle(
@@ -150,8 +150,8 @@ app.on('window-all-closed', () => {
 
 app.on('will-quit', () => {
     cleanupCache()
-    if (mpv) {
-        mpv.destroy()
+    if (qzplayer) {
+        qzplayer.destroy()
     }
 })
 
@@ -219,14 +219,14 @@ module.exports = {
     // Start Proxy Server
     startProxyServer()
 
-    // Start MPV
-    mpv = new MpvController()
-    mpv.start()
+    // Start qzplayer
+    qzplayer = new QzpController()
+    qzplayer.start()
 
-    mpv.on('event', (data) => {
-        // Forward MPV events to Render Process
+    qzplayer.on('event', (data) => {
+        // Forward qzplayer events to Render Process
         if (win && !win.isDestroyed()) {
-            win.webContents.send('mpv-event', data)
+            win.webContents.send('qzplayer-event', data)
         }
     })
 })

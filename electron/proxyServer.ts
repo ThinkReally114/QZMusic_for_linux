@@ -1,5 +1,5 @@
 import http from 'http';
-import { Readable, PassThrough } from 'stream';
+import { Readable } from 'stream';
 import fs from 'fs';
 import path from 'path';
 import { app } from 'electron';
@@ -42,6 +42,8 @@ interface DownloadTask {
     contentType: string;
     abortController: AbortController | null;
     promise: Promise<void> | null;
+    // 新增：用于通知等待者的回调列表
+    waiters: Array<{ start: number; end: number; resolve: () => void; reject: (err: Error) => void }>;
 }
 
 // Memory cache for resolved URLs
@@ -212,7 +214,6 @@ async function proxyRangeDirect(
         throw { statusCode: response.status, statusText: response.statusText };
     }
 
-    // Forward response headers
     const responseContentType = response.headers.get('content-type') || contentType || 'audio/mpeg';
     const contentLength = response.headers.get('content-length');
     const contentRange = response.headers.get('content-range');
@@ -269,9 +270,18 @@ function serveFromPartialCache(
 
         const { start, end } = range;
 
-        // 检查请求的范围是否已下载
-        if (end >= task.currentSize) {
-            return false; // 还没下载到这里
+        // 检查请求的范围是否已下载，使用实际文件大小而不是 task.currentSize
+        // 因为文件写入可能有延迟
+        let actualSize: number;
+        try {
+            actualSize = fs.statSync(tempPath).size;
+        } catch {
+            return false;
+        }
+
+        // 确保请求的范围完全在已下载的部分内
+        if (end >= actualSize) {
+            return false;
         }
 
         const chunksize = (end - start) + 1;
@@ -286,6 +296,10 @@ function serveFromPartialCache(
         const file = fs.createReadStream(tempPath, { start, end });
         file.pipe(res);
 
+        file.on('error', (err) => {
+            console.error('[Proxy] Error reading partial cache:', err);
+        });
+
         return true;
     } catch (e) {
         console.error('[Proxy] Error serving from partial cache:', e);
@@ -295,6 +309,7 @@ function serveFromPartialCache(
 
 /**
  * 启动后台下载任务（不阻塞当前请求）
+ * 修复版本：确保下载任务独立运行，不受客户端连接影响
  */
 function startBackgroundDownload(
     targetUrl: string,
@@ -302,7 +317,8 @@ function startBackgroundDownload(
     cacheKey: string
 ): DownloadTask {
     const existingTask = downloadTasks.get(cacheFilePath);
-    if (existingTask) {
+    if (existingTask && existingTask.promise) {
+        console.log(`[Proxy] Reusing existing download task for ${cacheFilePath}`);
         return existingTask;
     }
 
@@ -313,6 +329,7 @@ function startBackgroundDownload(
         contentType: 'audio/mpeg',
         abortController,
         promise: null,
+        waiters: [],
     };
 
     downloadTasks.set(cacheFilePath, task);
@@ -365,12 +382,20 @@ function startBackgroundDownload(
             await new Promise<void>((resolve, reject) => {
                 nodeStream.on('data', (chunk: Buffer) => {
                     task.currentSize += chunk.length;
+
+                    // 通知等待下载进度的请求
+                    notifyWaiters(task);
+
+                    // 每 10% 输出一次进度
+                    if (task.currentSize % Math.floor(contentLength / 10) < chunk.length) {
+                        const percent = Math.floor((task.currentSize / contentLength) * 100);
+                        console.log(`[Proxy] Download progress: ${percent}% (${task.currentSize}/${contentLength})`);
+                    }
                 });
 
                 nodeStream.pipe(fileStream);
 
                 fileStream.on('finish', () => {
-                    // 验证并移动文件
                     try {
                         const stat = fs.statSync(tempPath);
                         if (stat.size === contentLength) {
@@ -412,6 +437,12 @@ function startBackgroundDownload(
                 console.error('[Proxy] Background download failed:', e);
             }
             try { fs.unlinkSync(tempPath); } catch { }
+
+            // 通知所有等待者下载失败
+            for (const waiter of task.waiters) {
+                waiter.reject(new Error('Download failed'));
+            }
+            task.waiters = [];
         } finally {
             downloadTasks.delete(cacheFilePath);
         }
@@ -421,7 +452,29 @@ function startBackgroundDownload(
 }
 
 /**
+ * 通知等待下载进度的请求
+ */
+function notifyWaiters(task: DownloadTask) {
+    const resolvedWaiters: number[] = [];
+
+    for (let i = 0; i < task.waiters.length; i++) {
+        const waiter = task.waiters[i];
+        // 当下载进度超过请求的结束位置时，通知等待者
+        if (task.currentSize > waiter.end) {
+            waiter.resolve();
+            resolvedWaiters.push(i);
+        }
+    }
+
+    // 移除已解决的等待者
+    for (let i = resolvedWaiters.length - 1; i >= 0; i--) {
+        task.waiters.splice(resolvedWaiters[i], 1);
+    }
+}
+
+/**
  * 主代理函数 - 智能处理缓存和 Range 请求
+ * 修复版本：正确处理流的复制，确保下载和响应同时进行
  */
 async function proxyAndCache(
     req: http.IncomingMessage,
@@ -439,24 +492,29 @@ async function proxyAndCache(
     if (task) {
         console.log(`[Proxy] Download in progress: ${task.currentSize}/${task.totalSize}`);
 
-        // 尝试从部分缓存中读取
         if (requestedRange && task.totalSize > 0) {
             const range = parseRangeHeader(requestedRange, task.totalSize);
 
             if (range) {
-                // 检查请求的数据是否已下载
-                // 给一些缓冲区间（已下载部分的 95%）
-                const safeEnd = Math.floor(task.currentSize * 0.95);
+                // 获取临时文件的实际大小
+                const tempPath = getTempPath(cacheFilePath);
+                let actualSize = 0;
+                try {
+                    if (fs.existsSync(tempPath)) {
+                        actualSize = fs.statSync(tempPath).size;
+                    }
+                } catch { }
 
-                if (range.end < safeEnd && range.start < safeEnd) {
-                    console.log(`[Proxy] Serving range ${range.start}-${range.end} from partial cache (downloaded: ${task.currentSize})`);
+                // 如果请求的范围已经下载完成，从缓存读取
+                if (range.end < actualSize) {
+                    console.log(`[Proxy] Serving range ${range.start}-${range.end} from partial cache (downloaded: ${actualSize})`);
                     if (serveFromPartialCache(req, res, cacheFilePath, task)) {
                         return;
                     }
                 }
 
-                // 请求的数据还没下载到，直接代理这个 Range
-                console.log(`[Proxy] Range ${range.start}-${range.end} not cached yet (downloaded: ${task.currentSize}), proxying directly`);
+                // 请求的数据还没下载到，直接代理
+                console.log(`[Proxy] Range ${range.start}-${range.end} not cached yet (downloaded: ${actualSize}), proxying directly`);
                 await proxyRangeDirect(req, res, targetUrl, task.totalSize, task.contentType);
                 return;
             }
@@ -492,8 +550,21 @@ async function proxyAndCache(
         return;
     }
 
-    // 从头开始的请求：启动主下载任务并流式返回
+    // 从头开始的请求：下载并同时流式返回
+    await streamAndCache(req, res, targetUrl, cacheFilePath, cacheKey);
+}
 
+/**
+ * 新增：边下载边返回给客户端，同时写入缓存
+ * 使用 PassThrough 流正确复制数据
+ */
+async function streamAndCache(
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    targetUrl: string,
+    cacheFilePath: string,
+    cacheKey: string
+): Promise<void> {
     const headers: Record<string, string> = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
     };
@@ -527,7 +598,6 @@ async function proxyAndCache(
         return;
     }
 
-    // 设置下载任务
     const tempPath = getTempPath(cacheFilePath);
 
     // 清理旧文件
@@ -538,12 +608,14 @@ async function proxyAndCache(
 
     const fileStream = fs.createWriteStream(tempPath);
 
-    task = {
+    // 创建下载任务用于跟踪进度
+    const task: DownloadTask = {
         currentSize: 0,
         totalSize: contentLength,
         contentType: contentType,
         abortController: null,
         promise: null,
+        waiters: [],
     };
     downloadTasks.set(cacheFilePath, task);
 
@@ -564,27 +636,63 @@ async function proxyAndCache(
 
     // @ts-ignore
     const nodeStream = Readable.fromWeb(response.body);
-    const passThrough = new PassThrough();
 
-    // 跟踪下载进度
-    passThrough.on('data', (chunk: Buffer) => {
-        if (task) {
-            task.currentSize += chunk.length;
-        }
+    // 关键修复：使用正确的方式将流复制到多个目标
+    // 手动读取数据并写入多个目标
+    let clientConnected = true;
+    let downloadComplete = false;
+
+    res.on('close', () => {
+        clientConnected = false;
+        console.log('[Proxy] Client disconnected');
     });
 
-    // 流到客户端
-    passThrough.pipe(res);
+    return new Promise<void>((resolve, reject) => {
+        nodeStream.on('data', (chunk: Buffer) => {
+            task.currentSize += chunk.length;
 
-    // 流到文件
-    nodeStream.pipe(passThrough);
-    nodeStream.pipe(fileStream);
+            // 写入文件（始终进行）
+            fileStream.write(chunk);
 
-    // 处理完成
-    const cleanup = (success: boolean, error?: Error) => {
-        downloadTasks.delete(cacheFilePath);
+            // 写入响应（如果客户端还连接着）
+            if (clientConnected && !res.writableEnded) {
+                res.write(chunk);
+            }
 
-        if (success && fs.existsSync(tempPath)) {
+            // 通知等待者
+            notifyWaiters(task);
+        });
+
+        nodeStream.on('end', () => {
+            downloadComplete = true;
+
+            // 结束文件流
+            fileStream.end();
+
+            // 结束响应（如果客户端还连接着）
+            if (clientConnected && !res.writableEnded) {
+                res.end();
+            }
+        });
+
+        nodeStream.on('error', (err: Error) => {
+            console.error('[Proxy] Stream error:', err);
+            fileStream.destroy();
+
+            if (clientConnected && !res.headersSent) {
+                res.writeHead(502);
+                res.end('Proxy stream error');
+            }
+
+            downloadTasks.delete(cacheFilePath);
+            try { fs.unlinkSync(tempPath); } catch { }
+            reject(err);
+        });
+
+        fileStream.on('finish', () => {
+            downloadTasks.delete(cacheFilePath);
+
+            // 验证并移动文件
             try {
                 const stat = fs.statSync(tempPath);
                 if (stat.size === contentLength) {
@@ -595,7 +703,7 @@ async function proxyAndCache(
                         complete: true,
                         createdAt: Date.now()
                     });
-                    console.log(`[Proxy] Cache complete: ${cacheFilePath}`);
+                    console.log(`[Proxy] Cache complete: ${cacheFilePath} (${contentLength} bytes)`);
                 } else {
                     console.warn(`[Proxy] Incomplete download: ${stat.size}/${contentLength}`);
                     try { fs.unlinkSync(tempPath); } catch { }
@@ -604,27 +712,16 @@ async function proxyAndCache(
                 console.error('[Proxy] Failed to finalize cache:', e);
                 try { fs.unlinkSync(tempPath); } catch { }
             }
-        } else if (!success) {
-            console.error('[Proxy] Download failed:', error);
-            // 不删除临时文件，让后续请求可以继续
-        }
-    };
 
-    fileStream.on('finish', () => cleanup(true));
-    fileStream.on('error', (err) => cleanup(false, err));
-    nodeStream.on('error', (err: Error) => {
-        cleanup(false, err);
-        if (!res.headersSent) {
-            res.writeHead(502);
-            res.end('Proxy stream error');
-        }
-    });
+            resolve();
+        });
 
-    // 客户端断开时不终止下载
-    res.on('close', () => {
-        if (!res.writableEnded) {
-            console.log('[Proxy] Client disconnected, download continues in background');
-        }
+        fileStream.on('error', (err) => {
+            console.error('[Proxy] File write error:', err);
+            downloadTasks.delete(cacheFilePath);
+            try { fs.unlinkSync(tempPath); } catch { }
+            reject(err);
+        });
     });
 }
 
@@ -749,7 +846,7 @@ export function startProxyServer(persistCache: boolean = true) {
     console.log(`[Proxy] Persist cache: ${persistCache}`);
 
     // 定期清理临时文件
-    setInterval(cleanupTempFiles, 30 * 60 * 1000); // 每 30 分钟
+    setInterval(cleanupTempFiles, 30 * 60 * 1000);
 
     const server = http.createServer(async (req, res) => {
         res.setHeader('Access-Control-Allow-Origin', '*');
@@ -838,11 +935,8 @@ export function startProxyServer(persistCache: boolean = true) {
 
                     if (currentAttempt < maxAttempts) {
                         console.log('[Proxy] Error occurred, refreshing URL from plugin...');
-
-                        // 清除 URL 缓存
                         urlCache.delete(cacheKey);
 
-                        // 获取新 URL
                         const newUrl = await fetchFreshUrl(source, id, quality);
                         if (newUrl) {
                             playUrl = newUrl;
@@ -852,7 +946,6 @@ export function startProxyServer(persistCache: boolean = true) {
                         }
                     }
 
-                    // 发送错误响应
                     if (!res.headersSent) {
                         res.writeHead(lastError?.statusCode || 502);
                         res.end('Proxy Error');
@@ -872,7 +965,7 @@ export function startProxyServer(persistCache: boolean = true) {
 
     server.listen(PORT, '127.0.0.1', () => {
         ensureCacheDir();
-        cleanupTempFiles(); // 启动时清理
+        cleanupTempFiles();
         console.log(`[Proxy] Server running at http://127.0.0.1:${PORT}/music`);
         console.log(`[Proxy] Cache dir: ${CACHE_DIR}`);
     });

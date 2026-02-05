@@ -28,6 +28,13 @@ export const usePlayerStore = defineStore('player', () => {
     const duration = ref(0);
     const currentTime = ref(0);
 
+    // Audio Visualization State
+    const loudness = ref(0);
+    const spectrum = ref<number[]>([]);
+
+    // UI State
+    const isPlayerFullScreen = ref(false);
+
     // Playlist State
     const playlist = ref<Song[]>([]);
     const currentIndex = ref(-1);
@@ -96,7 +103,7 @@ export const usePlayerStore = defineStore('player', () => {
         let playUrl = song.url;
         if (song.type === 'Remote' && song.source) {
             // Use Local Proxy
-            const quality = 'hires';
+            const quality = 'jymaster';
             playUrl = `http://localhost:5266/music?source=${song.source}&id=${song.id}&quality=${quality}`;
             console.log('[Player] Using Proxy:', playUrl);
         }
@@ -106,8 +113,8 @@ export const usePlayerStore = defineStore('player', () => {
             // Reset retry flag for new playback attempt
             hasRetriedWithFreshUrl.value = false;
             try {
-                await window.electronAPI.mpv.load(playUrl);
-                await window.electronAPI.mpv.play();
+                await window.electronAPI.qzplayer.load(playUrl);
+                await window.electronAPI.qzplayer.play();
                 isPlaying.value = true;
                 song.url = playUrl;
             } catch (e) {
@@ -131,8 +138,8 @@ export const usePlayerStore = defineStore('player', () => {
             artwork: song.picUrl ? [{ src: song.picUrl, sizes: '512x512', type: 'image/png' }] : []
         });
 
-        navigator.mediaSession.setActionHandler('play', () => window.electronAPI.mpv.play());
-        navigator.mediaSession.setActionHandler('pause', () => window.electronAPI.mpv.pause());
+        navigator.mediaSession.setActionHandler('play', () => window.electronAPI.qzplayer.play());
+        navigator.mediaSession.setActionHandler('pause', () => window.electronAPI.qzplayer.pause());
         navigator.mediaSession.setActionHandler('previoustrack', () => prev());
         navigator.mediaSession.setActionHandler('nexttrack', () => next(true));
 
@@ -170,7 +177,7 @@ export const usePlayerStore = defineStore('player', () => {
     };
 
     const handlePlayError = async () => {
-        // Proxy handles refreshing internally, so we rely on MPV error/retry for now.
+        // Proxy handles refreshing internally, so we rely on qzplayer error/retry for now.
         // Or we could implement a mechanism to tell proxy to invalidate cache if this fails repeatedly (future work).
 
         // Normal error handling
@@ -184,7 +191,7 @@ export const usePlayerStore = defineStore('player', () => {
             return;
         }
         if (playErrorCount.value >= MAX_RETRY_COUNT) {
-            window.electronAPI.mpv.pause();
+            window.electronAPI.qzplayer.pause();
             isPlaying.value = false;
             MessagePlugin.error('连续多次播放失败，已停止播放');
             playErrorCount.value = 0;
@@ -197,16 +204,18 @@ export const usePlayerStore = defineStore('player', () => {
 
     // Listeners
     if (window.electronAPI) {
-        window.electronAPI.mpv.onEvent((_event, data) => {
+        window.electronAPI.qzplayer.onEvent((_event, data) => {
             if (data.event === 'property-change') {
                 if (data.name === 'pause') {
                     const isPaused = data.data;
                     isPlaying.value = !isPaused;
-                    // 核心：MPV 暂停 -> 同步暂停 Dummy -> 浏览器更新 SMTC 状态
+                    // 核心：qzplayer 暂停 -> 同步暂停 Dummy -> 浏览器更新 SMTC 状态
                     syncDummyAudioState(!isPaused);
                 }
                 if (data.name === 'time-pos') currentTime.value = data.data;
                 if (data.name === 'duration') duration.value = data.data;
+                if (data.name === 'loudness') loudness.value = data.data;
+                if (data.name === 'spectrum') spectrum.value = data.data;
             }
 
             if (data.event === 'end-file') {
@@ -221,22 +230,26 @@ export const usePlayerStore = defineStore('player', () => {
     }
 
     const togglePlay = async () => {
-        await window.electronAPI.mpv.togglePause();
+        await window.electronAPI.qzplayer.togglePause();
     };
 
     const setVolume = async (vol: number) => {
         volume.value = vol;
-        await window.electronAPI.mpv.setVolume(vol);
+        await window.electronAPI.qzplayer.setVolume(vol);
     };
 
     const seek = async (time: number) => {
-        await window.electronAPI.mpv.seek(time);
+        await window.electronAPI.qzplayer.seek(time);
     };
 
     const toggleMode = () => {
         if (playMode.value === PlayMode.List) playMode.value = PlayMode.Single;
         else if (playMode.value === PlayMode.Single) playMode.value = PlayMode.Random;
         else playMode.value = PlayMode.List;
+    };
+
+    const toggleFullScreen = () => {
+        isPlayerFullScreen.value = !isPlayerFullScreen.value;
     };
 
     return {
@@ -247,6 +260,9 @@ export const usePlayerStore = defineStore('player', () => {
         currentTime,
         playlist,
         playMode,
+        loudness,
+        spectrum,
+        isPlayerFullScreen,
         setPlaylist,
         playSong,
         next,
@@ -254,6 +270,7 @@ export const usePlayerStore = defineStore('player', () => {
         togglePlay,
         setVolume,
         seek,
-        toggleMode
+        toggleMode,
+        toggleFullScreen
     };
 });

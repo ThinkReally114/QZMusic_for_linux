@@ -11,9 +11,9 @@ import { Socket } from "net";
 import { EventEmitter } from "events";
 import path from "path";
 import http from "http";
-import { Readable, PassThrough } from "stream";
+import { Readable } from "stream";
 import fs from "fs";
-class MpvController extends EventEmitter {
+class QzpController extends EventEmitter {
   constructor(ipcPath) {
     super();
     __publicField(this, "process", null);
@@ -24,38 +24,28 @@ class MpvController extends EventEmitter {
   }
   getIpcPath() {
     if (process.platform === "win32") {
-      return "\\\\.\\pipe\\qzmusic_mpv_socket";
+      return "\\\\.\\pipe\\qzplayer";
     }
     return "/tmp/qzmusic_mpv_socket";
   }
-  getMpvPath() {
+  getCorePath() {
     const appRoot = process.env.APP_ROOT || process.cwd();
     if (process.platform === "win32") {
-      return path.join(appRoot, "core", "mpv.exe");
+      return path.join(appRoot, "core", "qzplayer.exe");
     }
-    return "mpv";
+    return "qzplayer";
   }
   start() {
-    const mpvPath = this.getMpvPath();
-    console.log("Starting MPV from:", mpvPath);
-    this.process = spawn(mpvPath, [
-      "--idle",
-      "--force-window=no",
-      "--no-media-controls",
-      `--input-ipc-server=${this.ipcPath}`,
-      "--no-terminal",
-      // Network cache for smooth playback (disk caching is handled by proxy)
-      "--cache=yes",
-      "--demuxer-max-bytes=50MiB",
-      "--demuxer-readahead-secs=30"
-    ]);
+    const playerPath = this.getCorePath();
+    console.log("Starting QZPlayer from:", playerPath);
+    this.process = spawn(playerPath);
     this.process.on("error", (err) => {
-      console.error("Failed to start MPV:", err);
+      console.error("Failed to start QZPlayer:", err);
       this.emit("error", err);
     });
     this.process.on("exit", (code, signal) => {
       var _a;
-      console.log(`MPV exited with code ${code} and signal ${signal}`);
+      console.log(`QZPlayer exited with code ${code} and signal ${signal}`);
       this.emit("exit", { code, signal });
       (_a = this.socket) == null ? void 0 : _a.destroy();
     });
@@ -63,13 +53,13 @@ class MpvController extends EventEmitter {
   }
   tryConnect(retries = 10) {
     if (retries <= 0) {
-      console.error("Could not connect to MPV socket after multiple attempts.");
+      console.error("Could not connect to QZPlayer socket after multiple attempts.");
       return;
     }
     setTimeout(() => {
       this.socket = new Socket();
       this.socket.on("connect", () => {
-        console.log("Connected to MPV IPC socket");
+        console.log("Connected to QZPlayer IPC socket");
         this.emit("ready");
         this.send(["observe_property", 1, "pause"]);
         this.send(["observe_property", 2, "time-pos"]);
@@ -103,17 +93,17 @@ class MpvController extends EventEmitter {
           this.emit("event", json);
         }
       } catch (e) {
-        console.error("Failed to parse MPV message:", msg);
+        console.error("Failed to parse QZPlayer message:", msg);
       }
     }
   }
   async send(command) {
     if (!this.socket || this.socket.destroyed) {
-      console.warn("MPV socket not connected");
+      console.warn("QZPlayer socket not connected");
       return;
     }
     const payload = JSON.stringify({ command });
-    console.log("[MPV TX]", payload);
+    console.log("[QZPlayer TX]", payload);
     this.socket.write(payload + "\n");
   }
   // Convenience methods
@@ -140,7 +130,7 @@ class MpvController extends EventEmitter {
   }
   destroy() {
     if (this.process) {
-      console.log("Killing MPV process...");
+      console.log("Killing QZPlayer process...");
       this.process.kill();
       this.process = null;
     }
@@ -380,7 +370,13 @@ function serveFromPartialCache(req, res, filePath, task) {
     const range = parseRangeHeader(req.headers.range, task.totalSize);
     if (!range) return false;
     const { start, end } = range;
-    if (end >= task.currentSize) {
+    let actualSize;
+    try {
+      actualSize = fs.statSync(tempPath).size;
+    } catch {
+      return false;
+    }
+    if (end >= actualSize) {
       return false;
     }
     const chunksize = end - start + 1;
@@ -392,6 +388,9 @@ function serveFromPartialCache(req, res, filePath, task) {
     });
     const file = fs.createReadStream(tempPath, { start, end });
     file.pipe(res);
+    file.on("error", (err) => {
+      console.error("[Proxy] Error reading partial cache:", err);
+    });
     return true;
   } catch (e) {
     console.error("[Proxy] Error serving from partial cache:", e);
@@ -400,7 +399,8 @@ function serveFromPartialCache(req, res, filePath, task) {
 }
 function startBackgroundDownload(targetUrl, cacheFilePath, cacheKey) {
   const existingTask = downloadTasks.get(cacheFilePath);
-  if (existingTask) {
+  if (existingTask && existingTask.promise) {
+    console.log(`[Proxy] Reusing existing download task for ${cacheFilePath}`);
     return existingTask;
   }
   const abortController = new AbortController();
@@ -409,7 +409,8 @@ function startBackgroundDownload(targetUrl, cacheFilePath, cacheKey) {
     totalSize: 0,
     contentType: "audio/mpeg",
     abortController,
-    promise: null
+    promise: null,
+    waiters: []
   };
   downloadTasks.set(cacheFilePath, task);
   task.promise = (async () => {
@@ -448,6 +449,11 @@ function startBackgroundDownload(targetUrl, cacheFilePath, cacheKey) {
       await new Promise((resolve, reject) => {
         nodeStream.on("data", (chunk) => {
           task.currentSize += chunk.length;
+          notifyWaiters(task);
+          if (task.currentSize % Math.floor(contentLength / 10) < chunk.length) {
+            const percent = Math.floor(task.currentSize / contentLength * 100);
+            console.log(`[Proxy] Download progress: ${percent}% (${task.currentSize}/${contentLength})`);
+          }
         });
         nodeStream.pipe(fileStream);
         fileStream.on("finish", () => {
@@ -504,11 +510,28 @@ function startBackgroundDownload(targetUrl, cacheFilePath, cacheKey) {
         fs.unlinkSync(tempPath);
       } catch {
       }
+      for (const waiter of task.waiters) {
+        waiter.reject(new Error("Download failed"));
+      }
+      task.waiters = [];
     } finally {
       downloadTasks.delete(cacheFilePath);
     }
   })();
   return task;
+}
+function notifyWaiters(task) {
+  const resolvedWaiters = [];
+  for (let i = 0; i < task.waiters.length; i++) {
+    const waiter = task.waiters[i];
+    if (task.currentSize > waiter.end) {
+      waiter.resolve();
+      resolvedWaiters.push(i);
+    }
+  }
+  for (let i = resolvedWaiters.length - 1; i >= 0; i--) {
+    task.waiters.splice(resolvedWaiters[i], 1);
+  }
 }
 async function proxyAndCache(req, res, targetUrl, cacheFilePath, cacheKey) {
   const requestedRange = req.headers.range;
@@ -519,14 +542,21 @@ async function proxyAndCache(req, res, targetUrl, cacheFilePath, cacheKey) {
     if (requestedRange && task.totalSize > 0) {
       const range = parseRangeHeader(requestedRange, task.totalSize);
       if (range) {
-        const safeEnd = Math.floor(task.currentSize * 0.95);
-        if (range.end < safeEnd && range.start < safeEnd) {
-          console.log(`[Proxy] Serving range ${range.start}-${range.end} from partial cache (downloaded: ${task.currentSize})`);
+        const tempPath = getTempPath(cacheFilePath);
+        let actualSize = 0;
+        try {
+          if (fs.existsSync(tempPath)) {
+            actualSize = fs.statSync(tempPath).size;
+          }
+        } catch {
+        }
+        if (range.end < actualSize) {
+          console.log(`[Proxy] Serving range ${range.start}-${range.end} from partial cache (downloaded: ${actualSize})`);
           if (serveFromPartialCache(req, res, cacheFilePath, task)) {
             return;
           }
         }
-        console.log(`[Proxy] Range ${range.start}-${range.end} not cached yet (downloaded: ${task.currentSize}), proxying directly`);
+        console.log(`[Proxy] Range ${range.start}-${range.end} not cached yet (downloaded: ${actualSize}), proxying directly`);
         await proxyRangeDirect(req, res, targetUrl, task.totalSize, task.contentType);
         return;
       }
@@ -544,10 +574,13 @@ async function proxyAndCache(req, res, targetUrl, cacheFilePath, cacheKey) {
       }
     });
     const totalSize = parseInt(headResponse.headers.get("content-length") || "0", 10);
-    const contentType2 = headResponse.headers.get("content-type") || "audio/mpeg";
-    await proxyRangeDirect(req, res, targetUrl, totalSize, contentType2);
+    const contentType = headResponse.headers.get("content-type") || "audio/mpeg";
+    await proxyRangeDirect(req, res, targetUrl, totalSize, contentType);
     return;
   }
+  await streamAndCache(req, res, targetUrl, cacheFilePath);
+}
+async function streamAndCache(req, res, targetUrl, cacheFilePath, cacheKey) {
   const headers = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
   };
@@ -581,12 +614,13 @@ async function proxyAndCache(req, res, targetUrl, cacheFilePath, cacheKey) {
   } catch {
   }
   const fileStream = fs.createWriteStream(tempPath);
-  task = {
+  const task = {
     currentSize: 0,
     totalSize: contentLength,
     contentType,
     abortController: null,
-    promise: null
+    promise: null,
+    waiters: []
   };
   downloadTasks.set(cacheFilePath, task);
   console.log(`[Proxy] Starting stream download: ${cacheFilePath} (${contentLength} bytes)`);
@@ -601,18 +635,42 @@ async function proxyAndCache(req, res, targetUrl, cacheFilePath, cacheKey) {
     return;
   }
   const nodeStream = Readable.fromWeb(response.body);
-  const passThrough = new PassThrough();
-  passThrough.on("data", (chunk) => {
-    if (task) {
-      task.currentSize += chunk.length;
-    }
+  let clientConnected = true;
+  res.on("close", () => {
+    clientConnected = false;
+    console.log("[Proxy] Client disconnected");
   });
-  passThrough.pipe(res);
-  nodeStream.pipe(passThrough);
-  nodeStream.pipe(fileStream);
-  const cleanup = (success, error) => {
-    downloadTasks.delete(cacheFilePath);
-    if (success && fs.existsSync(tempPath)) {
+  return new Promise((resolve, reject) => {
+    nodeStream.on("data", (chunk) => {
+      task.currentSize += chunk.length;
+      fileStream.write(chunk);
+      if (clientConnected && !res.writableEnded) {
+        res.write(chunk);
+      }
+      notifyWaiters(task);
+    });
+    nodeStream.on("end", () => {
+      fileStream.end();
+      if (clientConnected && !res.writableEnded) {
+        res.end();
+      }
+    });
+    nodeStream.on("error", (err) => {
+      console.error("[Proxy] Stream error:", err);
+      fileStream.destroy();
+      if (clientConnected && !res.headersSent) {
+        res.writeHead(502);
+        res.end("Proxy stream error");
+      }
+      downloadTasks.delete(cacheFilePath);
+      try {
+        fs.unlinkSync(tempPath);
+      } catch {
+      }
+      reject(err);
+    });
+    fileStream.on("finish", () => {
+      downloadTasks.delete(cacheFilePath);
       try {
         const stat = fs.statSync(tempPath);
         if (stat.size === contentLength) {
@@ -623,7 +681,7 @@ async function proxyAndCache(req, res, targetUrl, cacheFilePath, cacheKey) {
             complete: true,
             createdAt: Date.now()
           });
-          console.log(`[Proxy] Cache complete: ${cacheFilePath}`);
+          console.log(`[Proxy] Cache complete: ${cacheFilePath} (${contentLength} bytes)`);
         } else {
           console.warn(`[Proxy] Incomplete download: ${stat.size}/${contentLength}`);
           try {
@@ -638,23 +696,17 @@ async function proxyAndCache(req, res, targetUrl, cacheFilePath, cacheKey) {
         } catch {
         }
       }
-    } else if (!success) {
-      console.error("[Proxy] Download failed:", error);
-    }
-  };
-  fileStream.on("finish", () => cleanup(true));
-  fileStream.on("error", (err) => cleanup(false, err));
-  nodeStream.on("error", (err) => {
-    cleanup(false, err);
-    if (!res.headersSent) {
-      res.writeHead(502);
-      res.end("Proxy stream error");
-    }
-  });
-  res.on("close", () => {
-    if (!res.writableEnded) {
-      console.log("[Proxy] Client disconnected, download continues in background");
-    }
+      resolve();
+    });
+    fileStream.on("error", (err) => {
+      console.error("[Proxy] File write error:", err);
+      downloadTasks.delete(cacheFilePath);
+      try {
+        fs.unlinkSync(tempPath);
+      } catch {
+      }
+      reject(err);
+    });
   });
 }
 let persistCacheEnabled = true;
@@ -904,7 +956,7 @@ const MAIN_DIST = path$1.join(process.env.APP_ROOT, "dist-electron");
 const RENDERER_DIST = path$1.join(process.env.APP_ROOT, "dist");
 process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path$1.join(process.env.APP_ROOT, "public") : RENDERER_DIST;
 let win;
-let mpv;
+let qzplayer;
 function createWindow() {
   win = new BrowserWindow({
     frame: false,
@@ -937,18 +989,18 @@ ipcMain.on("window-minimize", (event) => {
 ipcMain.on("window-maximize", () => (win == null ? void 0 : win.isMaximized()) ? win.unmaximize() : win == null ? void 0 : win.maximize());
 ipcMain.on("window-close", () => win == null ? void 0 : win.close());
 ipcMain.handle("window-is-maximized", () => (win == null ? void 0 : win.isMaximized()) || false);
-ipcMain.handle("mpv-command", async (_, command) => {
-  if (mpv) {
-    mpv.send(command);
+ipcMain.handle("qzplayer-command", async (_, command) => {
+  if (qzplayer) {
+    qzplayer.send(command);
   }
 });
-ipcMain.handle("mpv-load", (_, url) => mpv == null ? void 0 : mpv.load(url));
-ipcMain.handle("mpv-play", () => mpv == null ? void 0 : mpv.play());
-ipcMain.handle("mpv-pause", () => mpv == null ? void 0 : mpv.pause());
-ipcMain.handle("mpv-toggle-pause", () => mpv == null ? void 0 : mpv.togglePause());
-ipcMain.handle("mpv-stop", () => mpv == null ? void 0 : mpv.stop());
-ipcMain.handle("mpv-set-volume", (_, vol) => mpv == null ? void 0 : mpv.setVolume(vol));
-ipcMain.handle("mpv-seek", (_, time) => mpv == null ? void 0 : mpv.seek(time));
+ipcMain.handle("qzplayer-load", (_, url) => qzplayer == null ? void 0 : qzplayer.load(url));
+ipcMain.handle("qzplayer-play", () => qzplayer == null ? void 0 : qzplayer.play());
+ipcMain.handle("qzplayer-pause", () => qzplayer == null ? void 0 : qzplayer.pause());
+ipcMain.handle("qzplayer-toggle-pause", () => qzplayer == null ? void 0 : qzplayer.togglePause());
+ipcMain.handle("qzplayer-stop", () => qzplayer == null ? void 0 : qzplayer.stop());
+ipcMain.handle("qzplayer-set-volume", (_, vol) => qzplayer == null ? void 0 : qzplayer.setVolume(vol));
+ipcMain.handle("qzplayer-seek", (_, time) => qzplayer == null ? void 0 : qzplayer.seek(time));
 ipcMain.handle(
   "plugin:call",
   async (_evenv, pluginId, method, args) => {
@@ -1007,8 +1059,8 @@ app.on("window-all-closed", () => {
 });
 app.on("will-quit", () => {
   cleanupCache();
-  if (mpv) {
-    mpv.destroy();
+  if (qzplayer) {
+    qzplayer.destroy();
   }
 });
 function registerZoomShortcuts(win2) {
@@ -1063,11 +1115,11 @@ module.exports = {
   Menu.setApplicationMenu(null);
   createWindow();
   startProxyServer();
-  mpv = new MpvController();
-  mpv.start();
-  mpv.on("event", (data) => {
+  qzplayer = new QzpController();
+  qzplayer.start();
+  qzplayer.on("event", (data) => {
     if (win && !win.isDestroyed()) {
-      win.webContents.send("mpv-event", data);
+      win.webContents.send("qzplayer-event", data);
     }
   });
 });

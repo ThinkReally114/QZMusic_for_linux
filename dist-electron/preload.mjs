@@ -6,16 +6,16 @@ electron.contextBridge.exposeInMainWorld("electronAPI", {
   maximizeWindow: () => electron.ipcRenderer.send("window-maximize"),
   closeWindow: () => electron.ipcRenderer.send("window-close"),
   isMaximized: () => electron.ipcRenderer.invoke("window-is-maximized"),
-  // MPV Control
-  mpv: {
-    load: (url) => electron.ipcRenderer.invoke("mpv-load", url),
-    play: () => electron.ipcRenderer.invoke("mpv-play"),
-    pause: () => electron.ipcRenderer.invoke("mpv-pause"),
-    togglePause: () => electron.ipcRenderer.invoke("mpv-toggle-pause"),
-    stop: () => electron.ipcRenderer.invoke("mpv-stop"),
-    setVolume: (vol) => electron.ipcRenderer.invoke("mpv-set-volume", vol),
-    seek: (time) => electron.ipcRenderer.invoke("mpv-seek", time),
-    onEvent: (callback) => electron.ipcRenderer.on("mpv-event", callback)
+  // qzplayer Control
+  qzplayer: {
+    load: (url) => electron.ipcRenderer.invoke("qzplayer-load", url),
+    play: () => electron.ipcRenderer.invoke("qzplayer-play"),
+    pause: () => electron.ipcRenderer.invoke("qzplayer-pause"),
+    togglePause: () => electron.ipcRenderer.invoke("qzplayer-toggle-pause"),
+    stop: () => electron.ipcRenderer.invoke("qzplayer-stop"),
+    setVolume: (vol) => electron.ipcRenderer.invoke("qzplayer-set-volume", vol),
+    seek: (time) => electron.ipcRenderer.invoke("qzplayer-seek", time),
+    onEvent: (callback) => electron.ipcRenderer.on("qzplayer-event", callback)
   },
   // Plugin System
   plugin: {
