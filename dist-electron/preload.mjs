@@ -19,7 +19,8 @@ electron.contextBridge.exposeInMainWorld("electronAPI", {
   },
   // Plugin System
   plugin: {
-    call: (pluginId, method, args) => electron.ipcRenderer.invoke("plugin:call", pluginId, method, args)
+    call: (pluginId, method, args) => electron.ipcRenderer.invoke("plugin:call", pluginId, method, args),
+    search: (pluginId, query, page, limit) => electron.ipcRenderer.invoke("plugin:call", pluginId, "search", [query, page, limit])
   },
   // Cache Control
   getCacheInfo: () => electron.ipcRenderer.invoke("cache:getInfo"),

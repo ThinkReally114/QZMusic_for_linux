@@ -15,6 +15,7 @@ export interface IElectronAPI {
     };
     plugin: {
         call: (pluginId: string, method: string, args: any[]) => Promise<any>;
+        search: (pluginId: string, query: string, page: number, limit: number) => Promise<any>;
     };
     // Cache Control
     getCacheInfo: () => Promise<{ path: string; size: string; persistCache: boolean }>;

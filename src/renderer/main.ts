@@ -30,6 +30,11 @@ const router = createRouter({
       path: '/recent',
       name: 'Recent',
       component: () => import('./views/Playlist.vue')
+    },
+    {
+      path: '/search',
+      name: 'Search',
+      component: () => import('./views/Search.vue')
     }
   ]
 })
@@ -72,5 +77,5 @@ const testSong2: Song = {
 
 // Auto Play
 playerStore.playSong(testSong).then(() => {
-  playerStore.setPlaylist([testSong,testSong2]);
+  playerStore.setPlaylist([testSong, testSong2]);
 });

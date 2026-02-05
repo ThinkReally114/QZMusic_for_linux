@@ -69,6 +69,7 @@ export class QzpController extends EventEmitter {
                 this.send(['observe_property', 3, 'duration']);
                 this.send(['observe_property', 4, 'idle-active']);
                 this.send(['observe_property', 5, 'eof-reached']);
+                this.send(['set_property', 'volume', 50])
             });
 
             this.socket.on('data', (data) => {

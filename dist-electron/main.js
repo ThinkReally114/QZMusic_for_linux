@@ -66,6 +66,7 @@ class QzpController extends EventEmitter {
         this.send(["observe_property", 3, "duration"]);
         this.send(["observe_property", 4, "idle-active"]);
         this.send(["observe_property", 5, "eof-reached"]);
+        this.send(["set_property", "volume", 50]);
       });
       this.socket.on("data", (data) => {
         this.handleData(data);
@@ -148,6 +149,27 @@ class PluginSystem {
     this.pluginId = pluginId;
     this.loadPlugin();
   }
+  async search(query, page, limit) {
+    var _a, _b;
+    if (!((_b = (_a = this.plugin) == null ? void 0 : _a.musicSearch) == null ? void 0 : _b.search)) {
+      return {
+        list: [],
+        total: 0,
+        allPage: 0,
+        error: "Search not implemented"
+      };
+    }
+    try {
+      return await this.plugin.musicSearch.search(query, page, limit);
+    } catch (e) {
+      return {
+        list: [],
+        total: 0,
+        allPage: 0,
+        error: e.message || "Plugin search error"
+      };
+    }
+  }
   loadPlugin() {
     try {
       const pluginPath = path.join(
@@ -175,7 +197,17 @@ class PluginSystem {
       };
     }
     try {
-      return await this.plugin.getUrl(id, quality);
+      const url = await this.plugin.getUrl(id, quality);
+      if (typeof url !== "string" || !url.startsWith("http")) {
+        return {
+          success: false,
+          error: "Invalid URL scheme"
+        };
+      }
+      return {
+        success: true,
+        url
+      };
     } catch (e) {
       return {
         success: false,

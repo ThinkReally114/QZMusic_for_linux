@@ -92,6 +92,8 @@ ipcMain.handle(
     }
 )
 
+
+
 // Cache IPC Handlers
 ipcMain.handle('cache:getInfo', () => {
     const settings = loadSettings();

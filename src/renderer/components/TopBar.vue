@@ -17,6 +17,8 @@
               type="text"
               placeholder="搜索音乐、歌手、专辑..."
               class="search-input"
+              v-model="searchQuery"
+              @keydown.enter="handleSearch"
           />
         </div>
       </div>
@@ -55,9 +57,18 @@ import { Icon } from '@iconify/vue';
 
 const router = useRouter();
 const isMaximized = ref(false);
+const searchQuery = ref('');
 
 const goBack = () => router.back();
 const goForward = () => router.forward();
+
+const handleSearch = () => {
+  if (!searchQuery.value.trim()) return;
+  router.push({ 
+    name: 'Search', 
+    query: { q: searchQuery.value } 
+  });
+};
 
 // Settings
 const openSettings = inject<() => void>('openSettings', () => {});

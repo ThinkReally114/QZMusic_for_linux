@@ -24,7 +24,7 @@ export const usePlayerStore = defineStore('player', () => {
     // State
     const isPlaying = ref(false);
     const currentSong = ref<Song | null>(null);
-    const volume = ref(100);
+    const volume = ref(50);
     const duration = ref(0);
     const currentTime = ref(0);
 

@@ -21,7 +21,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
     // Plugin System
     plugin: {
-        call: (pluginId: string, method: string, args: any[]) => ipcRenderer.invoke('plugin:call', pluginId, method, args)
+        call: (pluginId: string, method: string, args: any[]) => ipcRenderer.invoke('plugin:call', pluginId, method, args),
+        search: (pluginId: string, query: string, page: number, limit: number) => ipcRenderer.invoke('plugin:call', pluginId, 'search', [query, page, limit]),
     },
 
     // Cache Control

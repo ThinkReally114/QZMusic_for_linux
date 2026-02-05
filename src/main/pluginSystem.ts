@@ -12,7 +12,10 @@ export interface UrlResponse {
 }
 
 type PluginModule = {
-    getUrl?: (id: string, quality: string) => Promise<UrlResponse> | UrlResponse
+    getUrl?: (id: string, quality: string) => Promise<string> | string,
+    musicSearch?: {
+        search: (query: string, page: number, limit: number) => Promise<any> | any
+    }
 }
 
 export class PluginSystem {
@@ -22,6 +25,28 @@ export class PluginSystem {
         this.pluginId = pluginId
         this.loadPlugin()
     }
+
+    async search(query: string, page: number, limit: number): Promise<any> {
+        if (!this.plugin?.musicSearch?.search) {
+            return {
+                list: [],
+                total: 0,
+                allPage: 0,
+                error: 'Search not implemented'
+            }
+        }
+        try {
+            return await this.plugin.musicSearch.search(query, page, limit)
+        } catch (e: any) {
+            return {
+                list: [],
+                total: 0,
+                allPage: 0,
+                error: e.message || 'Plugin search error'
+            }
+        }
+    }
+
     private loadPlugin() {
         try {
             const pluginPath = path.join(
@@ -53,7 +78,21 @@ export class PluginSystem {
         }
 
         try {
-            return await this.plugin.getUrl(id, quality)
+            // New behavior: plugin returns raw url string or throws
+            const url = await this.plugin.getUrl(id, quality)
+
+            if (typeof url !== 'string' || !url.startsWith('http')) {
+                return {
+                    success: false,
+                    error: 'Invalid URL scheme'
+                }
+            }
+
+            return {
+                success: true,
+                url
+            }
+
         } catch (e: any) {
             return {
                 success: false,

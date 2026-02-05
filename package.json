@@ -28,6 +28,7 @@
     "tdesign-vue-next": "^1.17.7",
     "url": "^0.11.4",
     "vite-plugin-electron-renderer": "^0.14.6",
+    "vite-plugin-wasm": "^3.5.0",
     "vue": "^3.4.21",
     "vue-router": "^4.6.4"
   },
