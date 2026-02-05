@@ -30,7 +30,7 @@
               <h4 class="song-title" v-html="highlight(song.name)"></h4>
               <p class="song-artist" v-html="highlight(song.artist)"></p>
             </div>
-            <div class="song-album">{{ song.albumName || '-' }}</div>
+            <div class="song-album" v-html="highlight(song.albumName || '-')"></div>
             <div class="song-duration">{{ song.duration }}</div>
           </div>
         </div>
