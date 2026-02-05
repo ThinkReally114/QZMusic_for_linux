@@ -59,8 +59,18 @@ const testSong: Song = {
   source: 'wy',
   type: 'Remote'
 };
+const testSong2: Song = {
+  id: '1979007503',
+  name: '一半一半',
+  artist: '洛天依Official',
+  picUrl: 'http://p1.music.126.net/G02hs1vJYJir359bx8wGhg==/109951167851086939.jpg?param=130y130',
+  url: '',
+  duration: '02:43',
+  source: 'wy',
+  type: 'Remote'
+}
 
 // Auto Play
 playerStore.playSong(testSong).then(() => {
-  playerStore.setPlaylist([testSong]);
+  playerStore.setPlaylist([testSong,testSong2]);
 });

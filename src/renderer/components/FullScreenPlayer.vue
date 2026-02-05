@@ -2,7 +2,7 @@
   <div class="fullscreen-player" :class="{ active: isPlayerFullScreen }">
     <div class="player-content">
       <div class="dismiss-area" @click="toggleFullScreen">
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
+        <svg class="dismiss-button" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="6 9 12 15 18 9"></polyline>
         </svg>
@@ -181,8 +181,8 @@ const BackgroundRender = defineComponent({
     });
 
     watchEffect(() => {
-      if (props.playing) bgRenderRef.value?.pause();
-      else bgRenderRef.value?.resume();
+      if (props.playing) bgRenderRef.value?.resume();
+      else bgRenderRef.value?.pause();
     });
 
     watchEffect(() => {
@@ -224,6 +224,7 @@ const loudness = computed(() => playerStore.loudness);
 
 const canvasRef = ref<HTMLCanvasElement | null>(null);
 let animationId: number | null = null;
+let currentData: number[] = new Array(32).fill(0); // For temporal smoothing
 
 const drawSpectrum = () => {
   if (!canvasRef.value) return;
@@ -231,7 +232,7 @@ const drawSpectrum = () => {
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
 
-  // Adjust canvas size to display resolution
+  // Adjust canvas size
   const dpr = window.devicePixelRatio || 1;
   const rect = canvas.getBoundingClientRect();
   canvas.width = rect.width * dpr;
@@ -240,28 +241,72 @@ const drawSpectrum = () => {
 
   const width = rect.width;
   const height = rect.height;
-  const barCount = 32;
-  const barWidth = (width / barCount) * 0.5; // Gap = Bar Width
-  const gap = (width - (barCount * barWidth)) / (barCount + 1);
-
+  
   ctx.clearRect(0, 0, width, height);
 
-  const data = playerStore.spectrum;
-  if (!data || data.length === 0) return;
+  const targetData = playerStore.spectrum;
+  if (!targetData) return;
 
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-
-  for (let i = 0; i < Math.min(data.length, barCount); i++) {
-    const value = data[i];
-    const barHeight = value * height * 0.6; // Scale down a bit
-    const x = gap + i * (barWidth + gap);
-    const y = height - barHeight;
-
-    // Draw rounded bar
-    ctx.beginPath();
-    ctx.roundRect(x, y, barWidth, barHeight, 4);
-    ctx.fill();
+  // 1. Temporal Smoothing (LERP)
+  // Adjust speed (0.1 - 0.3) for desired smoothness
+  const lerpSpeed = 0.15;
+  for (let i = 0; i < 32; i++) {
+      const target = targetData[i] || 0;
+      currentData[i] = currentData[i] + (target - currentData[i]) * lerpSpeed;
   }
+
+  // 2. Draw Smooth Wave
+  ctx.beginPath();
+  ctx.moveTo(0, height);
+
+  const pointCount = currentData.length;
+  // Use a subset if desired, but 32 is fine. 
+  // We want the wave to be centered or span the width.
+  const step = width / (pointCount - 1);
+
+  // Start point
+  let x = 0;
+  let y = height - (currentData[0] * height * 0.5); // Scale 0.5
+  ctx.lineTo(x, y);
+
+  for (let i = 0; i < pointCount - 1; i++) {
+    const xCurr = i * step;
+    const yCurr = height - (currentData[i] * height * 0.5);
+    
+    const xNext = (i + 1) * step;
+    const yNext = height - (currentData[i + 1] * height * 0.5);
+    
+    // Control point for quadratic curve (midpoint)
+    const xMid = (xCurr + xNext) / 2;
+    const yMid = (yCurr + yNext) / 2;
+    
+    ctx.quadraticCurveTo(xCurr, yCurr, xMid, yMid);
+  }
+
+  // Connect to last point
+  const lastX = (pointCount - 1) * step;
+  const lastY = height - (currentData[pointCount - 1] * height * 0.5);
+  ctx.lineTo(lastX, lastY);
+
+  // Close path to bottom
+  ctx.lineTo(width, height);
+  ctx.closePath();
+
+  // Style
+  const gradient = ctx.createLinearGradient(0, height - 200, 0, height);
+  gradient.addColorStop(0, 'rgba(255, 255, 255, 0.4)');
+  gradient.addColorStop(1, 'rgba(255, 255, 255, 0.05)');
+  
+  ctx.fillStyle = gradient;
+  
+  // Add blur effect
+  ctx.shadowBlur = 20;
+  ctx.shadowColor = 'rgba(255, 255, 255, 0.5)';
+  
+  ctx.fill();
+
+  // Reset shadow for next frame (performance)
+  ctx.shadowBlur = 0;
 };
 
 const loop = () => {
@@ -334,16 +379,19 @@ const toggleFullScreen = () => {
 }
 
 .dismiss-area {
-  padding: 24px;
+  padding: 2.5%;
   cursor: pointer;
   display: flex;
-  justify-content: center;
+  justify-content: start;
   align-items: center;
   color: rgba(255, 255, 255, 0.5);
   transition: color 0.2s;
   z-index: 20;
+  -webkit-app-region: drag;
 }
-
+.dismiss-button {
+  -webkit-app-region: none;
+}
 .dismiss-area:hover {
   color: white;
 }
