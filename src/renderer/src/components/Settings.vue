@@ -133,6 +133,27 @@
             <!-- 播放设置 -->
             <div v-else-if="activeCategory === 'playback'" class="section">
               <h2 class="section-title">播放设置</h2>
+              
+              <!-- 列表添加模式 -->
+              <div class="setting-item">
+                <div class="setting-info">
+                  <div class="setting-label">列表添加模式</div>
+                  <div class="setting-desc">选择点击歌曲时的播放行为</div>
+                </div>
+                <div class="setting-control">
+                  <div class="radio-group">
+                    <label class="radio-option">
+                      <input type="radio" value="replace" v-model="playerStore.addListMode">
+                      <span class="radio-label">替换当前列表</span>
+                    </label>
+                    <label class="radio-option">
+                      <input type="radio" value="append" v-model="playerStore.addListMode">
+                      <span class="radio-label">添加到列表末尾</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+
               <div class="placeholder-content">
                 <Icon icon="lucide:headphones" class="placeholder-icon" />
                 <p>音质、淡入淡出等设置即将推出</p>
@@ -168,6 +189,9 @@
 <script setup lang="ts">
 import { ref, reactive, onBeforeMount, nextTick } from 'vue';
 import { Icon } from '@iconify/vue';
+import { usePlayerStore } from '../stores/player';
+
+const playerStore = usePlayerStore();
 
 defineEmits(['close']);
 
@@ -676,5 +700,28 @@ input:checked + .toggle-slider:before {
   height: 18px;
   color: white;
   filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
+}
+
+/* Radio Group */
+.radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.radio-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+}
+
+.radio-option input[type="radio"] {
+  accent-color: var(--color-accent);
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
 }
 </style>

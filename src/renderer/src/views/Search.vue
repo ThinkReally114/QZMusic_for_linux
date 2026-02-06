@@ -23,7 +23,18 @@
         </div>
       </transition>
 
-      <div class="song-list-container" v-if="!loading && songs.length > 0">
+      <div class="error-state" v-if="!loading && error">
+          <div class="icon-box">
+            <Icon icon="lucide:alert-circle" class="state-icon" />
+          </div>
+          <p class="state-text">搜索出错了，请稍后重试</p>
+          <button class="retry-btn" @click="fetchData">
+            <Icon icon="lucide:refresh-cw" class="btn-icon" />
+            重试
+          </button>
+      </div>
+
+      <div class="song-list-container" v-else-if="!loading && songs.length > 0">
         <div class="list-header">
            <div class="col-index">#</div>
            <div class="col-title">标题</div>
@@ -79,8 +90,12 @@
           <span>正在搜索...</span>
       </div>
 
-      <div class="empty-state" v-if="!loading && songs.length === 0">
+      <div class="empty-state" v-if="!loading && !error && songs.length === 0">
           <span>未找到相关歌曲</span>
+          <button class="retry-btn" @click="fetchData">
+            <Icon icon="lucide:refresh-cw" class="btn-icon" />
+            重试
+          </button>
       </div>
     </div>
   </div>
@@ -103,8 +118,10 @@ const currentPage = ref(1);
 const showSettings = ref(false);
 const savedLimit = localStorage.getItem('qz-search-limit');
 const limit = ref(savedLimit ? Number(savedLimit) : 30);
+
 const total = ref(0);
 const loading = ref(false);
+const error = ref(false);
 const songs = ref<Song[]>([]);
 
 const totalPages = computed(() => {
@@ -140,6 +157,7 @@ const fetchData = async () => {
     if (!query.value) return;
     
     loading.value = true;
+    error.value = false;
     songs.value = [];
     
     try {
@@ -154,6 +172,7 @@ const fetchData = async () => {
         }
     } catch (e) {
         console.error("Search failed", e);
+        error.value = true;
     } finally {
         loading.value = false;
     }
@@ -165,7 +184,7 @@ const changePage = (page: number) => {
 };
 
 const handlePlaySong = (index: number) => {
-    playerStore.setPlaylist(songs.value, index);
+    playerStore.playFromList(songs.value[index], songs.value);
 };
 
 const getHighlightRegex = (q: string) => {
@@ -593,18 +612,71 @@ watch(limit, (newLimit) => {
 }
 
 /* States */
-.loading-state, .empty-state {
+.loading-state, .empty-state, .error-state {
     padding: 60px 0;
     display: flex;
     flex-direction: column;
     align-items: center;
+    justify-content: center;
     gap: 16px;
     color: var(--color-text-muted);
+    min-height: 300px;
 }
 
 .spin {
     animation: spin 1s linear infinite;
     font-size: 32px;
+    color: var(--color-accent);
+}
+
+.error-state .icon-box {
+    width: 64px;
+    height: 64px;
+    background: var(--color-bg-tertiary);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 8px;
+}
+
+.state-icon {
+    font-size: 32px;
+    color: var(--color-accent);
+}
+
+.state-text {
+    font-size: 15px;
+    color: var(--color-text-secondary);
+}
+
+.retry-btn {
+    margin-top: 8px;
+    padding: 8px 24px;
+    background: var(--color-accent);
+    color: white; /* Ensure text is readable on accent color */
+    border-radius: var(--radius-full);
+    font-size: 14px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.2s;
+    box-shadow: var(--shadow-sm);
+}
+
+.retry-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
+    filter: brightness(1.1);
+}
+
+.retry-btn:active {
+    transform: translateY(0);
+}
+
+.retry-btn .btn-icon {
+    font-size: 16px;
 }
 
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }

@@ -91,16 +91,7 @@ export class PluginSystem {
                 error: 'Search not implemented'
             }
         }
-        try {
-            return await this.plugin.musicSearch.search(query, page, limit)
-        } catch (e: any) {
-            return {
-                list: [],
-                total: 0,
-                allPage: 0,
-                error: e.message || 'Plugin search error'
-            }
-        }
+        return await this.plugin.musicSearch.search(query, page, limit)
     }
 
     async getLyric(id: string): Promise<any> {

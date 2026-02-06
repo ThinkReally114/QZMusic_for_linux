@@ -114,11 +114,14 @@ const coverGradient = computed(() => {
 // Mock Playlist Data
 const songs = ref(Array.from({ length: 15 }, (_, i) => ({
     id: i + 1,
-    title: `Song Title ${i + 1}`,
+    name: `Song Title ${i + 1}`,
     artist: `Artist Name ${i + 1}`,
-    album: `Album Mock`,
+    albumName: `Album Mock`,
     duration: '03:30',
-    url: 'http://commondatastorage.googleapis.com/codeskulptor-demos/riceracer_assets/music/win.ogg' 
+    url: 'http://commondatastorage.googleapis.com/codeskulptor-demos/riceracer_assets/music/win.ogg',
+    picUrl: '',
+    source: 'local',
+    type: 'Local' 
 })));
 
 const songCount = computed(() => songs.value.length);
@@ -128,7 +131,7 @@ const handlePlayAll = () => {
 };
 
 const handlePlaySong = (index: number) => {
-    playerStore.setPlaylist(songs.value, index);
+    playerStore.playFromList(songs.value[index], songs.value);
 };
 </script>
 

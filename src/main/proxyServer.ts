@@ -473,6 +473,26 @@ function notifyWaiters(task: DownloadTask) {
 }
 
 /**
+ * Cancel all background downloads EXCEPT the one matching the given path
+ */
+function cancelAllDownloadsExcept(exceptPath: string) {
+    for (const [path, task] of downloadTasks) {
+        if (path !== exceptPath) {
+            console.log(`[Proxy] Cancelling competing download: ${path}`);
+            if (task.abortController) {
+                task.abortController.abort();
+            }
+            downloadTasks.delete(path);
+            // Cleanup temp file? Handled by error handler typically, but force check
+            try {
+                const tempPath = getTempPath(path);
+                if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+            } catch { }
+        }
+    }
+}
+
+/**
  * 主代理函数 - 智能处理缓存和 Range 请求
  * 修复版本：正确处理流的复制，确保下载和响应同时进行
  */
@@ -485,6 +505,9 @@ async function proxyAndCache(
 ): Promise<void> {
     const requestedRange = req.headers.range;
     const isSeekRequest = requestedRange && !requestedRange.startsWith('bytes=0-');
+
+    // NEW: Cancel other downloads to enforce "Current Song Priority"
+    cancelAllDownloadsExcept(cacheFilePath);
 
     // 检查是否有正在进行的后台下载
     let task = downloadTasks.get(cacheFilePath);
@@ -565,14 +588,25 @@ async function streamAndCache(
     cacheFilePath: string,
     cacheKey: string
 ): Promise<void> {
+    const controller = new AbortController();
     const headers: Record<string, string> = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
     };
 
-    const response = await fetch(targetUrl, {
-        method: 'GET',
-        headers: headers,
-    });
+    let response;
+    try {
+        response = await fetch(targetUrl, {
+            method: 'GET',
+            headers: headers,
+            signal: controller.signal
+        });
+    } catch (e: any) {
+        if (e.name === 'AbortError') {
+            console.log(`[Proxy] Request aborted for ${targetUrl}`);
+            return;
+        }
+        throw e;
+    }
 
     if (!response.ok) {
         throw { statusCode: response.status, statusText: response.statusText };
@@ -592,6 +626,13 @@ async function streamAndCache(
             // @ts-ignore
             const nodeStream = Readable.fromWeb(response.body);
             nodeStream.pipe(res);
+
+            // Handle cleanup if aborted during pipe (though pipe handles some)
+            res.on('close', () => {
+                if (!res.writableEnded) {
+                    nodeStream.destroy();
+                }
+            });
         } else {
             res.end();
         }
@@ -613,7 +654,7 @@ async function streamAndCache(
         currentSize: 0,
         totalSize: contentLength,
         contentType: contentType,
-        abortController: null,
+        abortController: controller,
         promise: null,
         waiters: [],
     };
@@ -645,6 +686,8 @@ async function streamAndCache(
     res.on('close', () => {
         clientConnected = false;
         console.log('[Proxy] Client disconnected');
+        // Do NOT abort download here anymore. 
+        // We let it finish UNLESS a new song starts (handled by cancelAllDownloadsExcept).
     });
 
     return new Promise<void>((resolve, reject) => {
@@ -652,7 +695,9 @@ async function streamAndCache(
             task.currentSize += chunk.length;
 
             // 写入文件（始终进行）
-            fileStream.write(chunk);
+            if (!fileStream.destroyed) {
+                fileStream.write(chunk);
+            }
 
             // 写入响应（如果客户端还连接着）
             if (clientConnected && !res.writableEnded) {
@@ -676,7 +721,11 @@ async function streamAndCache(
         });
 
         nodeStream.on('error', (err: Error) => {
-            console.error('[Proxy] Stream error:', err);
+            if (err.name === 'AbortError') {
+                console.log('[Proxy] Stream aborted');
+            } else {
+                console.error('[Proxy] Stream error:', err);
+            }
             fileStream.destroy();
 
             if (clientConnected && !res.headersSent) {
@@ -934,6 +983,11 @@ export function startProxyServer(persistCache: boolean = true) {
                     console.warn(`[Proxy] Proxy error (Attempt ${currentAttempt}/${maxAttempts}):`, e);
 
                     if (currentAttempt < maxAttempts) {
+                        if (res.headersSent) {
+                            console.warn('[Proxy] Cannot retry because headers already sent');
+                            break;
+                        }
+
                         console.log('[Proxy] Error occurred, refreshing URL from plugin...');
                         urlCache.delete(cacheKey);
 

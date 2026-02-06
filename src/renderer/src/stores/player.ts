@@ -46,9 +46,14 @@ export const usePlayerStore = defineStore('player', () => {
     const isPlayerFullScreen = ref(false);
 
     // Playlist State
-    const playlist = ref<Song[]>([]);
-    const currentIndex = ref(-1);
+    const savedPlaylist = localStorage.getItem('qz-player-playlist');
+    const savedIndex = localStorage.getItem('qz-player-index');
+
+    const playlist = ref<Song[]>(savedPlaylist ? JSON.parse(savedPlaylist) : []);
+    const currentIndex = ref(savedIndex ? Number(savedIndex) : -1);
     const playMode = ref<PlayMode>(PlayMode.List);
+    const savedAddMode = localStorage.getItem('qz-player-add-mode');
+    const addListMode = ref<'replace' | 'append'>((savedAddMode as 'replace' | 'append') || 'replace');
 
     // Error Handling
     const playErrorCount = ref(0);
@@ -90,6 +95,7 @@ export const usePlayerStore = defineStore('player', () => {
     // --- Actions ---
 
     const setPlaylist = async (list: any[], startIndex = 0) => {
+        // Legacy support or direct set
         playlist.value = list;
         currentIndex.value = startIndex;
         if (list.length > 0 && startIndex >= 0 && startIndex < list.length) {
@@ -97,9 +103,34 @@ export const usePlayerStore = defineStore('player', () => {
         }
     };
 
-    const playSong = async (song: Song) => {
-        if (!song) return;
+    const playFromList = async (song: Song, contextList: Song[]) => {
+        if (addListMode.value === 'replace') {
+            // Replace Mode: Replace playlist with context list and play song
+            // Find index in context list
+            const index = contextList.findIndex(s => s.id === song.id);
+            if (index !== -1) {
+                await setPlaylist(contextList, index);
+            } else {
+                // Fallback: just play song if not found in list (shouldn't happen usually)
+                await setPlaylist([song], 0);
+            }
+        } else {
+            // Append Mode: Add song to end of current playlist and play it
+            // Check if song already exists in playlist to avoid duplicates? 
+            // User request says "append", usually means just add it. 
+            // But if it's already there? Let's just add it to the end for now as requested "put clicked song to end".
 
+            // Push to playlist
+            playlist.value.push(song);
+            const newIndex = playlist.value.length - 1;
+            currentIndex.value = newIndex;
+            await playSong(song);
+        }
+    };
+
+    const playSong = async (song: Song, autoPlay = true) => {
+        if (!song) return;
+        console.log(song);
         currentSong.value = song;
         const foundIndex = playlist.value.findIndex(s => s.id === song.id);
         if (foundIndex !== -1) {
@@ -108,7 +139,7 @@ export const usePlayerStore = defineStore('player', () => {
 
         await activateDummyAudio();
         updateMediaSession(song);
-        fetchLyrics(song);
+        // fetchLyrics(song);
 
         // Get URL (Cache -> Network)
         let playUrl = song.url;
@@ -120,22 +151,32 @@ export const usePlayerStore = defineStore('player', () => {
         }
 
         if (playUrl) {
-            console.log('Playing:', song.name);
+            console.log('Playing:', song.name, 'AutoPlay:', autoPlay);
             // Reset retry flag for new playback attempt
             hasRetriedWithFreshUrl.value = false;
             try {
                 await window.electronAPI.qzplayer.load(playUrl);
-                await window.electronAPI.qzplayer.play();
-                isPlaying.value = true;
+                if (autoPlay) {
+                    await window.electronAPI.qzplayer.play();
+                    isPlaying.value = true;
+                } else {
+                    // Ensure it's paused if load auto-starts and we don't want it to
+                    // But usually we just don't call play. If loadfile auto-plays, we might need to pause.
+                    // For now, let's assume load doesn't force play or we can pause immediately.
+                    // Actually, let's force pause just in case loadfile defaults to play.
+                    await window.electronAPI.qzplayer.pause();
+                    isPlaying.value = false;
+                    syncDummyAudioState(false);
+                }
                 song.url = playUrl;
             } catch (e) {
                 // IPC call failed (rare), handle sync error
                 console.error("IPC Play request failed:", e);
-                handlePlayError().then();
+                if (autoPlay) handlePlayError().then();
             }
         } else {
             console.warn("Song has no URL");
-            handlePlayError().then();
+            if (autoPlay) handlePlayError().then();
         }
     };
 
@@ -225,7 +266,7 @@ export const usePlayerStore = defineStore('player', () => {
             syncDummyAudioState(false);
         } else {
             MessagePlugin.warning(`播放失败，尝试播放下一首 (${playErrorCount.value}/${MAX_RETRY_COUNT})`).then();
-            setTimeout(() => next(false), 500);
+            next(false)
         }
     };
 
@@ -278,6 +319,28 @@ export const usePlayerStore = defineStore('player', () => {
         isPlayerFullScreen.value = !isPlayerFullScreen.value;
     };
 
+    // Persistence Listeners
+    watch(() => [playlist.value, currentIndex.value], () => {
+        localStorage.setItem('qz-player-playlist', JSON.stringify(playlist.value));
+        localStorage.setItem('qz-player-index', currentIndex.value.toString());
+    }, { deep: true });
+
+    watch(addListMode, (newMode) => {
+        localStorage.setItem('qz-player-add-mode', newMode);
+    });
+
+    // Restore initial state (without playing)
+    if (playlist.value.length > 0 && currentIndex.value >= 0 && currentIndex.value < playlist.value.length) {
+        const restoredSong = playlist.value[currentIndex.value];
+        if (restoredSong) {
+            // Use playSong with autoPlay=false to load the song into the engine
+            setTimeout(() => {
+                playSong(restoredSong, false);
+                fetchLyrics(restoredSong);
+            }, 0);
+        }
+    }
+
     return {
         isPlaying,
         currentSong,
@@ -299,6 +362,8 @@ export const usePlayerStore = defineStore('player', () => {
         toggleMode,
         toggleFullScreen,
         lyrics,
-        fetchLyrics
+        fetchLyrics,
+        addListMode,
+        playFromList
     };
 });
