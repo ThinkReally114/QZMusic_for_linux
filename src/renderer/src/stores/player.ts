@@ -2,7 +2,6 @@ import { defineStore } from 'pinia';
 import { ref, watch } from 'vue';
 import { MessagePlugin } from 'tdesign-vue-next';
 import type { Song } from '../types/song';
-import { parseLyric } from '../utils/lyricParser';
 
 export enum PlayMode {
     List = 'list',
@@ -147,13 +146,7 @@ export const usePlayerStore = defineStore('player', () => {
             // Check if plugin API exists
             if (window.electronAPI?.plugin?.getLyric) {
                 const rawLyric = await window.electronAPI.plugin.getLyric(song.source || 'kw', song.id.toString());
-                if (rawLyric) {
-                    const parsedLines = parseLyric(rawLyric);
-                    if (parsedLines) {
-                        lyrics.value = { lines: parsedLines };
-                    }
-                    console.log(lyrics)
-                }
+                console.log(rawLyric)
             } else {
                 MessagePlugin.warning("当前插件不支持歌词获取").then()
             }

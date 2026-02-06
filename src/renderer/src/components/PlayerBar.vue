@@ -190,6 +190,7 @@ const formatTime = (seconds2: number) => {
 
 <style scoped>
 .player-bar {
+  box-sizing: border-box;
   position: fixed;
   bottom: 0;
   left: 0;

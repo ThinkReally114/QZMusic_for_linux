@@ -93,6 +93,7 @@ const togglePlaylists = () => {
 
 <style scoped>
 .sidebar {
+  box-sizing: border-box;
   width: var(--sidebar-width);
   height: 100vh;
   background-color: var(--color-bg-secondary);

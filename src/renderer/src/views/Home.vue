@@ -101,6 +101,7 @@ const currentDate = computed(() => {
 }
 
 .content-wrapper {
+  box-sizing: border-box;
   padding: 24px;
   max-width: 1400px;
   margin: 0 auto;
@@ -116,6 +117,7 @@ const currentDate = computed(() => {
   border-radius: var(--radius-2xl);
   -electron-corner-smoothing: 65%;
   padding: 40px;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   gap: 32px;
@@ -362,6 +364,7 @@ const currentDate = computed(() => {
 }
 
 .song-item {
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   padding: 12px 16px;

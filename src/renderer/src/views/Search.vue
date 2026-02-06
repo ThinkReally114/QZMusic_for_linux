@@ -227,6 +227,7 @@ watch(limit, (newLimit) => {
 }
 
 .content-wrapper {
+  box-sizing: border-box;
   padding: 20px 30px; /* Reduced vertical padding, kept horizontal for spacing but flexible */
   width: 100%;
   /* Removed max-width to allow full width usage as requested */
@@ -403,12 +404,12 @@ watch(limit, (newLimit) => {
 .col-time { text-align: right; }
 
 .song-item {
+  box-sizing: border-box;
   border-radius: var(--radius-lg);
   transition: background-color 0.2s;
   cursor: pointer;
   color: var(--color-text-secondary);
   width: 100%; /* Fill width */
-  box-sizing: border-box; /* Include padding in width */
 }
 
 .song-item:hover {

@@ -74,10 +74,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted } from 'vue';
+import { computed, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { Icon } from '@iconify/vue';
-import { usePlayerStore } from '../stores/player.ts';
+import { usePlayerStore } from '../stores/player';
 
 const route = useRoute();
 const playerStore = usePlayerStore();
@@ -140,6 +140,7 @@ const handlePlaySong = (index: number) => {
 }
 
 .content-wrapper {
+  box-sizing: border-box;
   padding: 30px;
   max-width: 1400px;
   margin: 0 auto;
@@ -155,6 +156,7 @@ const handlePlaySong = (index: number) => {
   display: flex;
   align-items: center;
   padding: 0 40px;
+  box-sizing: border-box;
   box-shadow: var(--shadow-lg);
 }
 
@@ -360,8 +362,7 @@ const handlePlaySong = (index: number) => {
 }
 
 /* List Styles */
-.song-list-container {
-}
+
 
 .list-header {
   display: flex;
@@ -376,10 +377,10 @@ const handlePlaySong = (index: number) => {
 .col-album { width: 200px; }
 .col-time { width: 60px; text-align: right; }
 
-.song-list {
-}
+
 
 .song-item {
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   padding: 10px 16px;

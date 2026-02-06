@@ -20,7 +20,7 @@ import { computed } from 'vue';
 import Sidebar from '../components/Sidebar.vue';
 import TopBar from '../components/TopBar.vue';
 import PlayerBar from '../components/PlayerBar.vue';
-import { usePlayerStore } from '../stores/player.ts';
+import { usePlayerStore } from '../stores/player';
 
 const playerStore = usePlayerStore();
 const hasSongs = computed(() => playerStore.playlist.length > 0);
@@ -29,7 +29,6 @@ const hasSongs = computed(() => playerStore.playlist.length > 0);
 <style>
 /* 这确保 width: 100% + padding 不会撑破容器 */
 *, *::before, *::after {
-  box-sizing: border-box;
   margin: 0;
   padding: 0;
 }
