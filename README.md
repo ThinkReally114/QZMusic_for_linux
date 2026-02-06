@@ -14,7 +14,7 @@
 | **Vite**       | 现代化的前端构建工具    |
 | **QZ Plugins** | 高拓展性的插件运行环境   |
 | **AMLL**       | 背景渲染             |
-
+| **QZPlayer**   | 基于WASAPI和FFmpeg的轻量级模块化音频播放器,使用C编写,IPC与主程序通信 |
 ## 📖 项目说明
 
 本项目为 **Vue + Electron** 的学习实践作品，旨在完善QZ Music的多平台生态。
