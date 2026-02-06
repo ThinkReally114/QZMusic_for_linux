@@ -222,6 +222,7 @@ const togglePlaylists = () => {
   background: linear-gradient(to right, transparent, var(--color-border), transparent);
   margin: 16px 8px;
   opacity: 0.6;
+  flex-shrink: 0;
 }
 
 /* 区域标题 */

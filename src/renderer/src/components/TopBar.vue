@@ -109,6 +109,7 @@ onUnmounted(() => {
 }
 
 .topbar {
+  box-sizing: border-box;
   height: 64px;
   width: 100%;
   display: flex;
