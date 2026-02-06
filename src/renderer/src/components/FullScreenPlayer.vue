@@ -11,7 +11,7 @@
       <div class="background-container">
         <BackgroundRender
             :album="currentSong?.picUrl"
-            :lowFreqVolume="loudness"
+            :lowFreqVolume="1"
             :hasLyric="true"
             :playing="isPlaying"
         />
@@ -220,8 +220,6 @@ const playerStore = usePlayerStore();
 const isPlayerFullScreen = computed(() => playerStore.isPlayerFullScreen);
 const currentSong = computed(() => playerStore.currentSong);
 const isPlaying = computed(() => playerStore.isPlaying);
-const loudness = computed(() => playerStore.loudness);
-
 const canvasRef = ref<HTMLCanvasElement | null>(null);
 let animationId: number | null = null;
 let currentData: number[] = new Array(32).fill(0); // For temporal smoothing
