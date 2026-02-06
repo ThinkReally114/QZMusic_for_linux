@@ -4,7 +4,6 @@ import { createPinia } from 'pinia'
 import { createRouter, createWebHashHistory } from 'vue-router'
 
 import App from './App.vue'
-import TDesign from 'tdesign-vue-next'
 import 'tdesign-vue-next/es/style/index.css'
 
 const pinia = createPinia()
@@ -42,7 +41,6 @@ const router = createRouter({
 const app = createApp(App)
 app.use(pinia)
 app.use(router)
-app.use(TDesign)
 app.mount('#app')
 
 // --- TEST: Auto Play Specific Song ---

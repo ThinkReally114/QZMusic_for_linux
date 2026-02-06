@@ -2,9 +2,26 @@
   <div class="view-container search-view">
     <div class="content-wrapper">
       <div class="search-header">
-         <h1 class="search-title">搜索: "{{ query }}"</h1>
-         <span class="result-count">找到 {{ total }} 个结果</span>
+         <div class="header-left">
+            <h1 class="search-title">搜索: "{{ query }}"</h1>
+            <span class="result-count">找到 {{ total }} 个结果</span>
+         </div>
+         <button class="icon-btn" @click="showSettings = !showSettings" :class="{ active: showSettings }" title="搜索设置">
+             <Icon icon="lucide:settings-2" />
+         </button>
       </div>
+
+      <transition name="slide-fade">
+        <div class="settings-panel" v-if="showSettings">
+            <div class="setting-item">
+                <span class="setting-label">每页显示: {{ limit }} 首</span>
+                <div class="slider-container">
+                    <input type="range" min="10" max="100" step="10" v-model.number="limit" class="setting-slider">
+                    <div class="slider-track" :style="{ width: ((limit - 10) / 90) * 100 + '%' }"></div>
+                </div>
+            </div>
+        </div>
+      </transition>
 
       <div class="song-list-container" v-if="!loading && songs.length > 0">
         <div class="list-header">
@@ -71,19 +88,21 @@
 
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { useRoute } from 'vue-router';
 import { Icon } from '@iconify/vue';
 import { usePlayerStore } from '../stores/player';
 import { transformSearchSong } from '../utils/songUtils';
 import type { Song } from '../types/song';
 
 const route = useRoute();
-const router = useRouter();
+
 const playerStore = usePlayerStore();
 
 const query = computed(() => route.query.q as string || '');
 const currentPage = ref(1);
-const limit = ref(30);
+const showSettings = ref(false);
+const savedLimit = localStorage.getItem('qz-search-limit');
+const limit = ref(savedLimit ? Number(savedLimit) : 30);
 const total = ref(0);
 const loading = ref(false);
 const songs = ref<Song[]>([]);
@@ -110,7 +129,7 @@ const visiblePages = computed(() => {
     start = Math.max(1, start - ((current + delta) - total));
   }
   
-  const pages = [];
+  const pages: number[] = [];
   for (let i = start; i <= end; i++) {
     pages.push(i);
   }
@@ -191,6 +210,12 @@ watch(query, () => {
     currentPage.value = 1;
     fetchData();
 }, { immediate: true });
+
+watch(limit, (newLimit) => {
+    localStorage.setItem('qz-search-limit', newLimit.toString());
+    currentPage.value = 1;
+    fetchData();
+});
 </script>
 
 
@@ -210,6 +235,12 @@ watch(query, () => {
 
 .search-header {
     margin-bottom: 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.header-left {
     text-align: left;
 }
 
@@ -237,6 +268,113 @@ watch(query, () => {
 .result-count {
     font-size: 13px;
     color: var(--color-text-muted);
+}
+
+.icon-btn {
+    background: transparent;
+    border: none;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    width: 36px;
+    height: 36px;
+    transition: all 0.2s;
+}
+
+.icon-btn:hover {
+    background: var(--color-bg-tertiary);
+    color: var(--color-text-primary);
+}
+
+.icon-btn.active {
+    background: var(--color-bg-tertiary);
+    color: var(--color-accent);
+}
+
+/* Settings Panel */
+.settings-panel {
+    background: var(--color-bg-secondary);
+    border-radius: var(--radius-lg);
+    padding: 16px 20px;
+    margin-bottom: 20px;
+    border: 1px solid var(--color-border);
+}
+
+.setting-item {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.setting-label {
+    font-size: 14px;
+    color: var(--color-text-secondary);
+    min-width: 100px;
+}
+
+.slider-container {
+    position: relative;
+    width: 200px;
+    height: 4px;
+    background: var(--color-bg-tertiary);
+    border-radius: 2px;
+    display: flex;
+    align-items: center;
+}
+
+.setting-slider {
+    appearance: none;
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    background: transparent;
+    top: 0;
+    left: 0;
+    margin: 0;
+    z-index: 2;
+    cursor: pointer;
+}
+
+.setting-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--color-accent);
+    cursor: pointer;
+    box-shadow: 0 0 4px rgba(0,0,0,0.2);
+}
+
+.slider-track {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    background: var(--color-accent);
+    border-radius: 2px;
+    pointer-events: none;
+    z-index: 1;
+}
+
+.slide-fade-enter-active,
+.slide-fade-leave-active {
+  transition: all 0.3s ease;
+  max-height: 100px;
+  overflow: hidden;
+  opacity: 1;
+}
+
+.slide-fade-enter-from,
+.slide-fade-leave-to {
+  max-height: 0;
+  opacity: 0;
+  margin-bottom: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-width: 0;
 }
 
 /* List Grid Layout */

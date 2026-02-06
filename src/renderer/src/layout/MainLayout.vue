@@ -27,7 +27,6 @@ const hasSongs = computed(() => playerStore.playlist.length > 0);
 </script>
 
 <style>
-/* 关键修复：全局重置盒模型 */
 /* 这确保 width: 100% + padding 不会撑破容器 */
 *, *::before, *::after {
   box-sizing: border-box;
@@ -67,13 +66,12 @@ body {
   flex-direction: column;
   position: relative;
   overflow: hidden;
-  /* 关键修复：防止 flex 子项内容过宽撑开容器 */
   min-width: 0;
 }
 
 .page-content {
   flex: 1;
-  overflow-y: auto; /* 只允许内容区域滚动 */
+  overflow-y: auto;
   padding: 0;
   background-color: var(--color-bg-primary);
   position: relative;

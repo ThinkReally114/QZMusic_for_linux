@@ -4,7 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { app } from 'electron';
 // @ts-ignore
-import { PluginSystem } from '../src/main/pluginSystem.ts';
+import { PluginSystem } from './pluginSystem.ts';
 
 const PORT = 5266;
 let CACHE_DIR = '';

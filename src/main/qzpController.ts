@@ -97,7 +97,7 @@ export class QzpController extends EventEmitter {
 
         for (const msg of messages) {
             if (!msg.trim()) continue;
-            console.log('[IPC]', msg); // User requested raw communication
+            //console.log('[IPC]', msg); // User requested raw communication
             try {
                 const json = JSON.parse(msg);
                 this.emit('message', json);

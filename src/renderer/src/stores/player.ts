@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia';
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 import { MessagePlugin } from 'tdesign-vue-next';
 import type { Song } from '../types/song';
+import { parseLyric } from '../utils/lyricParser';
 
 export enum PlayMode {
     List = 'list',
@@ -24,9 +25,19 @@ export const usePlayerStore = defineStore('player', () => {
     // State
     const isPlaying = ref(false);
     const currentSong = ref<Song | null>(null);
-    const volume = ref(50);
-    const duration = ref(0);
-    const currentTime = ref(0);
+    const savedVolume = localStorage.getItem('qz-player-volume');
+    const volume = ref(savedVolume ? Number(savedVolume) : 50); // 1~100
+
+    // Persistence & Sync
+    watch(volume, (newVol) => {
+        localStorage.setItem('qz-player-volume', newVol.toString());
+    });
+    // Sync initial volume to backend
+    if (window.electronAPI?.qzplayer) {
+        window.electronAPI.qzplayer.setVolume(volume.value).catch(console.error);
+    }
+    const duration = ref(0); //毫秒级
+    const currentTime = ref(0); //毫秒级
 
     // Audio Visualization State
     const loudness = ref(0);
@@ -45,8 +56,10 @@ export const usePlayerStore = defineStore('player', () => {
     const MAX_RETRY_COUNT = 3;
     const hasRetriedWithFreshUrl = ref(false);
 
-    // --- Helpers ---
+    // Lyrics State
+    const lyrics = ref<{ lines: any[] }>({ lines: [] });
 
+    // --- Helpers ---
     const activateDummyAudio = async () => {
         if (dummyAudio.paused) {
             try {
@@ -77,8 +90,6 @@ export const usePlayerStore = defineStore('player', () => {
 
     // --- Actions ---
 
-
-
     const setPlaylist = async (list: any[], startIndex = 0) => {
         playlist.value = list;
         currentIndex.value = startIndex;
@@ -98,12 +109,13 @@ export const usePlayerStore = defineStore('player', () => {
 
         await activateDummyAudio();
         updateMediaSession(song);
+        fetchLyrics(song);
 
-        // 1. Get URL (Cache -> Network)
+        // Get URL (Cache -> Network)
         let playUrl = song.url;
         if (song.type === 'Remote' && song.source) {
             // Use Local Proxy
-            const quality = 'jymaster';
+            const quality = 'hires';
             playUrl = `http://localhost:5266/music?source=${song.source}&id=${song.id}&quality=${quality}`;
             console.log('[Player] Using Proxy:', playUrl);
         }
@@ -120,11 +132,33 @@ export const usePlayerStore = defineStore('player', () => {
             } catch (e) {
                 // IPC call failed (rare), handle sync error
                 console.error("IPC Play request failed:", e);
-                handlePlayError();
+                handlePlayError().then();
             }
         } else {
             console.warn("Song has no URL");
-            handlePlayError();
+            handlePlayError().then();
+        }
+    };
+
+    const fetchLyrics = async (song: Song) => {
+        lyrics.value = { lines: [] }; // Reset
+        if (!song || !song.id) return;
+        try {
+            // Check if plugin API exists
+            if (window.electronAPI?.plugin?.getLyric) {
+                const rawLyric = await window.electronAPI.plugin.getLyric(song.source || 'kw', song.id.toString());
+                if (rawLyric) {
+                    const parsedLines = parseLyric(rawLyric);
+                    if (parsedLines) {
+                        lyrics.value = { lines: parsedLines };
+                    }
+                    console.log(lyrics)
+                }
+            } else {
+                MessagePlugin.warning("当前插件不支持歌词获取").then()
+            }
+        } catch (e) {
+            console.error('Failed to fetch lyrics:', e);
         }
     };
 
@@ -145,7 +179,7 @@ export const usePlayerStore = defineStore('player', () => {
 
         navigator.mediaSession.setActionHandler('seekto', (details) => {
             if (details.seekTime != null) {
-                seek(details.seekTime);
+                seek(details.seekTime).then();
             }
         });
     };
@@ -182,7 +216,7 @@ export const usePlayerStore = defineStore('player', () => {
 
         // Normal error handling
         playErrorCount.value++;
-        hasRetriedWithFreshUrl.value = false; // Reset for next song
+        hasRetriedWithFreshUrl.value = false;
 
         if (playlist.value.length === 0) {
             isPlaying.value = false;
@@ -191,13 +225,13 @@ export const usePlayerStore = defineStore('player', () => {
             return;
         }
         if (playErrorCount.value >= MAX_RETRY_COUNT) {
-            window.electronAPI.qzplayer.pause();
+            window.electronAPI.qzplayer.pause().then();
             isPlaying.value = false;
-            MessagePlugin.error('连续多次播放失败，已停止播放');
+            MessagePlugin.error('连续多次播放失败，已停止播放').then();
             playErrorCount.value = 0;
             syncDummyAudioState(false);
         } else {
-            MessagePlugin.warning(`播放失败，尝试播放下一首 (${playErrorCount.value}/${MAX_RETRY_COUNT})`);
+            MessagePlugin.warning(`播放失败，尝试播放下一首 (${playErrorCount.value}/${MAX_RETRY_COUNT})`).then();
             setTimeout(() => next(false), 500);
         }
     };
@@ -209,11 +243,10 @@ export const usePlayerStore = defineStore('player', () => {
                 if (data.name === 'pause') {
                     const isPaused = data.data;
                     isPlaying.value = !isPaused;
-                    // 核心：qzplayer 暂停 -> 同步暂停 Dummy -> 浏览器更新 SMTC 状态
                     syncDummyAudioState(!isPaused);
                 }
-                if (data.name === 'time-pos') currentTime.value = data.data;
-                if (data.name === 'duration') duration.value = data.data;
+                if (data.name === 'time-pos') currentTime.value = data.data; //毫秒级
+                if (data.name === 'duration') duration.value = data.data;    //毫秒级
                 if (data.name === 'loudness') loudness.value = data.data;
                 if (data.name === 'spectrum') spectrum.value = data.data;
             }
@@ -223,7 +256,7 @@ export const usePlayerStore = defineStore('player', () => {
                 if (reason === 'eof') {
                     next(false);
                 } else if (reason === 'error') {
-                    handlePlayError();
+                    handlePlayError().then();
                 }
             }
         });
@@ -271,6 +304,8 @@ export const usePlayerStore = defineStore('player', () => {
         setVolume,
         seek,
         toggleMode,
-        toggleFullScreen
+        toggleFullScreen,
+        lyrics,
+        fetchLyrics
     };
 });

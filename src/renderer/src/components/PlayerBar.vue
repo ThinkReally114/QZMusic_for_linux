@@ -179,7 +179,8 @@ const handleBarClick = (e: MouseEvent) => {
 };
 
 // Utils
-const formatTime = (seconds: number) => {
+const formatTime = (seconds2: number) => {
+  const seconds = Math.floor(seconds2 / 1000);
   if (!seconds || isNaN(seconds)) return '00:00';
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);

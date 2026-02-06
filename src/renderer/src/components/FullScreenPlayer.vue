@@ -234,6 +234,7 @@ const drawSpectrum = () => {
 
   // Adjust canvas size
   const dpr = window.devicePixelRatio || 1;
+
   const rect = canvas.getBoundingClientRect();
   canvas.width = rect.width * dpr;
   canvas.height = rect.height * dpr;
@@ -241,7 +242,7 @@ const drawSpectrum = () => {
 
   const width = rect.width;
   const height = rect.height;
-  
+
   ctx.clearRect(0, 0, width, height);
 
   const targetData = playerStore.spectrum;
@@ -251,8 +252,8 @@ const drawSpectrum = () => {
   // Adjust speed (0.1 - 0.3) for desired smoothness
   const lerpSpeed = 0.15;
   for (let i = 0; i < 32; i++) {
-      const target = targetData[i] || 0;
-      currentData[i] = currentData[i] + (target - currentData[i]) * lerpSpeed;
+    const target = targetData[i] || 0;
+    currentData[i] = currentData[i] + (target - currentData[i]) * lerpSpeed;
   }
 
   // 2. Draw Smooth Wave
@@ -260,7 +261,7 @@ const drawSpectrum = () => {
   ctx.moveTo(0, height);
 
   const pointCount = currentData.length;
-  // Use a subset if desired, but 32 is fine. 
+  // Use a subset if desired, but 32 is fine.
   // We want the wave to be centered or span the width.
   const step = width / (pointCount - 1);
 
@@ -272,14 +273,14 @@ const drawSpectrum = () => {
   for (let i = 0; i < pointCount - 1; i++) {
     const xCurr = i * step;
     const yCurr = height - (currentData[i] * height * 0.5);
-    
+
     const xNext = (i + 1) * step;
     const yNext = height - (currentData[i + 1] * height * 0.5);
-    
+
     // Control point for quadratic curve (midpoint)
     const xMid = (xCurr + xNext) / 2;
     const yMid = (yCurr + yNext) / 2;
-    
+
     ctx.quadraticCurveTo(xCurr, yCurr, xMid, yMid);
   }
 
@@ -296,13 +297,13 @@ const drawSpectrum = () => {
   const gradient = ctx.createLinearGradient(0, height - 200, 0, height);
   gradient.addColorStop(0, 'rgba(255, 255, 255, 0.4)');
   gradient.addColorStop(1, 'rgba(255, 255, 255, 0.05)');
-  
+
   ctx.fillStyle = gradient;
-  
+
   // Add blur effect
   ctx.shadowBlur = 20;
   ctx.shadowColor = 'rgba(255, 255, 255, 0.5)';
-  
+
   ctx.fill();
 
   // Reset shadow for next frame (performance)

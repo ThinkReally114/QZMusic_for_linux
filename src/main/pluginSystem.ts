@@ -2,6 +2,7 @@ import { app } from 'electron'
 import path from 'path'
 import fs from 'fs'
 import { createRequire } from 'node:module'
+import { MessagePlugin } from "tdesign-vue-next";
 
 const require = createRequire(import.meta.url)
 
@@ -15,7 +16,8 @@ type PluginModule = {
     getUrl?: (id: string, quality: string) => Promise<string> | string,
     musicSearch?: {
         search: (query: string, page: number, limit: number) => Promise<any> | any
-    }
+    },
+    getLyric?: (id: string) => Promise<string> | object
 }
 
 export class PluginSystem {
@@ -24,27 +26,6 @@ export class PluginSystem {
     constructor(pluginId: string) {
         this.pluginId = pluginId
         this.loadPlugin()
-    }
-
-    async search(query: string, page: number, limit: number): Promise<any> {
-        if (!this.plugin?.musicSearch?.search) {
-            return {
-                list: [],
-                total: 0,
-                allPage: 0,
-                error: 'Search not implemented'
-            }
-        }
-        try {
-            return await this.plugin.musicSearch.search(query, page, limit)
-        } catch (e: any) {
-            return {
-                list: [],
-                total: 0,
-                allPage: 0,
-                error: e.message || 'Plugin search error'
-            }
-        }
     }
 
     private loadPlugin() {
@@ -98,6 +79,44 @@ export class PluginSystem {
                 success: false,
                 error: e.message || 'plugin error'
             }
+        }
+    }
+
+    async search(query: string, page: number, limit: number): Promise<any> {
+        if (!this.plugin?.musicSearch?.search) {
+            return {
+                list: [],
+                total: 0,
+                allPage: 0,
+                error: 'Search not implemented'
+            }
+        }
+        try {
+            return await this.plugin.musicSearch.search(query, page, limit)
+        } catch (e: any) {
+            return {
+                list: [],
+                total: 0,
+                allPage: 0,
+                error: e.message || 'Plugin search error'
+            }
+        }
+    }
+
+    async getLyric(id: string): Promise<any> {
+        console.log("getLyric not implemented");
+        if (!this.plugin?.getLyric) {
+            console.log("getLyric not implemented2");
+            return
+        }
+        try {
+            const result = await this.plugin.getLyric(id)
+            console.log(result)
+            return result
+        } catch (e: any) {
+            console.log(e)
+            MessagePlugin.error(e).then()
+            return {}
         }
     }
 }
