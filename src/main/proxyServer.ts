@@ -5,14 +5,18 @@ import path from 'path';
 import { app } from 'electron';
 // @ts-ignore
 import { PluginSystem } from './pluginSystem.ts';
+import { loadSettings } from './settingsStore';
 
 const PORT = 5266;
 let CACHE_DIR = '';
 
 function ensureCacheDir() {
-    if (!CACHE_DIR) {
-        CACHE_DIR = path.join(app.getPath('userData'), 'music', 'cache');
-    }
+    const settings = loadSettings();
+    const configuredPath = settings.cachePath || path.join(app.getPath('userData'), 'music', 'cache');
+
+    // Always update global CACHE_DIR if it changes (e.g. after setting update)
+    CACHE_DIR = configuredPath;
+
     if (!fs.existsSync(CACHE_DIR)) {
         try {
             fs.mkdirSync(CACHE_DIR, { recursive: true });
@@ -194,7 +198,7 @@ async function proxyRangeDirect(
     req: http.IncomingMessage,
     res: http.ServerResponse,
     targetUrl: string,
-    totalSize: number,
+    _totalSize: number,
     contentType: string
 ): Promise<void> {
     const headers: Record<string, string> = {
@@ -582,11 +586,11 @@ async function proxyAndCache(
  * 使用 PassThrough 流正确复制数据
  */
 async function streamAndCache(
-    req: http.IncomingMessage,
+    _req: http.IncomingMessage,
     res: http.ServerResponse,
     targetUrl: string,
     cacheFilePath: string,
-    cacheKey: string
+    _cacheKey: string
 ): Promise<void> {
     const controller = new AbortController();
     const headers: Record<string, string> = {
@@ -681,7 +685,7 @@ async function streamAndCache(
     // 关键修复：使用正确的方式将流复制到多个目标
     // 手动读取数据并写入多个目标
     let clientConnected = true;
-    let downloadComplete = false;
+    let _downloadComplete = false;
 
     res.on('close', () => {
         clientConnected = false;
@@ -709,7 +713,7 @@ async function streamAndCache(
         });
 
         nodeStream.on('end', () => {
-            downloadComplete = true;
+            _downloadComplete = true;
 
             // 结束文件流
             fileStream.end();

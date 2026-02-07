@@ -56,6 +56,11 @@
                     <Icon icon="lucide:folder-open" />
                     打开目录
                   </button>
+                  <button class="action-btn" @click="changeCacheLocation" :disabled="isChangingCache">
+                    <Icon v-if="isChangingCache" icon="lucide:loader-2" class="spin" />
+                    <Icon v-else icon="lucide:folder-edit" />
+                    {{ isChangingCache ? '迁移中...' : '更改' }}
+                  </button>
                 </div>
               </div>
 
@@ -73,6 +78,49 @@
                 </div>
               </div>
             </div>
+
+            <!-- 插件管理 -->
+            <div v-else-if="activeCategory === 'plugins'" class="section">
+              <div class="section-header">
+                <div>
+                    <h2 class="section-title" style="border:none;margin:0;padding:0">插件管理</h2>
+                    <div class="setting-desc">管理已安装的音乐源插件</div>
+                </div>
+                <button class="action-btn primary" @click="installPluginFromFile">
+                    <Icon icon="lucide:plus" />
+                    安装插件
+                </button>
+              </div>
+
+              <div class="plugin-grid">
+                 <div v-if="plugins.length === 0" class="empty-state">
+                    <Icon icon="lucide:package-open" class="empty-icon"/>
+                    <p>暂无已安装的插件</p>
+                    <button class="text-btn" @click="installPluginFromFile">点击安装</button>
+                 </div>
+                 <div v-for="plugin in plugins" :key="plugin.id" class="plugin-card">
+                    <div class="plugin-info">
+                        <div class="plugin-header">
+                            <span class="plugin-name">{{ plugin.name || plugin.id }}</span>
+                            <span class="plugin-version" v-if="plugin.version">v{{ plugin.version }}</span>
+                        </div>
+                        <p class="plugin-desc">{{ plugin.description || '暂无描述' }}</p>
+                        <div class="plugin-tags" v-if="plugin.quality?.length">
+                            <span v-for="q in plugin.quality" :key="q.id" class="tag" :title="q.name">{{ q.ui }}</span>
+                        </div>
+                    </div>
+                    <div class="plugin-actions">
+                        <button class="action-btn danger small" @click="confirmUninstall(plugin)">
+                            <Icon icon="lucide:trash-2" />
+                            卸载
+                        </button>
+                    </div>
+                 </div>
+              </div>
+            </div>
+
+            <!-- Uninstall Confirm Modal -->
+
 
             <!-- 外观设置 -->
             <div v-else-if="activeCategory === 'appearance'" class="section">
@@ -179,6 +227,20 @@
                 <p class="copyright">©2026 QZ <DEVELOPERS></DEVELOPERS></p>
               </div>
             </div>
+
+            <!-- Uninstall Confirm Modal -->
+             <Transition name="fade">
+                <div class="modal-overlay" v-if="showUninstallModal">
+                    <div class="modal-content">
+                        <h3>卸载插件</h3>
+                        <p>确定要卸载插件 "{{ pluginToUninstall?.name }}" 吗？此操作无法撤销。</p>
+                        <div class="modal-actions">
+                            <button class="action-btn" @click="showUninstallModal = false">取消</button>
+                            <button class="action-btn danger" @click="executeUninstall">确认卸载</button>
+                        </div>
+                    </div>
+                </div>
+             </Transition>
           </div>
         </div>
       </div>
@@ -187,8 +249,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onBeforeMount, nextTick } from 'vue';
+import { ref, reactive, onBeforeMount, nextTick, watch } from 'vue';
 import { Icon } from '@iconify/vue';
+import { MessagePlugin } from 'tdesign-vue-next';
 import { usePlayerStore } from '../stores/player';
 
 const playerStore = usePlayerStore();
@@ -197,6 +260,7 @@ defineEmits(['close']);
 
 const categories = [
   { id: 'storage', name: '存储', icon: 'lucide:hard-drive' },
+  { id: 'plugins', name: '插件', icon: 'lucide:blocks' },
   { id: 'appearance', name: '外观', icon: 'lucide:palette' },
   { id: 'playback', name: '播放', icon: 'lucide:headphones' },
   { id: 'shortcuts', name: '快捷键', icon: 'lucide:keyboard' },
@@ -217,6 +281,7 @@ const accentColors = [
 const activeCategory = ref('storage');
 const isLoaded = ref(false);
 const enableTransition = ref(false);
+const plugins = ref<any[]>([]);
 
 const settings = reactive({
   persistCache: true,
@@ -231,6 +296,70 @@ const cacheInfo = reactive({
   path: '',
   size: '',
 });
+
+const loadPlugins = async () => {
+    try {
+        if (window.electronAPI?.plugin?.getAll) {
+             plugins.value = await window.electronAPI.plugin.getAll();
+        }
+    } catch (e) {
+         console.error('Failed to load plugins', e);
+    }
+};
+
+const uninstallPlugin = async (id: string) => {
+    try {
+        if (window.electronAPI?.plugin?.uninstall) {
+            await window.electronAPI.plugin.uninstall(id);
+            await loadPlugins();
+        }
+    } catch (e) {
+        console.error('Failed to uninstall plugin', e);
+    }
+}
+
+const installPluginFromFile = async () => {
+    try {
+        if (window.electronAPI?.plugin?.install) {
+            const result = await window.electronAPI.plugin.install();
+            if (result.success) {
+                MessagePlugin.success(result.message || '安装成功');
+                await loadPlugins();
+            } else {
+                if (result.message !== 'canceled') { // Assuming 'canceled' might be a thing, or just show whatever message comes back
+                     MessagePlugin.error(result.message || '安装失败');
+                }
+            }
+        }
+    } catch (e) {
+        console.error('Failed to install plugin', e);
+        MessagePlugin.error('安装过程中发生错误');
+    }
+}
+
+// Modal Logic
+const showUninstallModal = ref(false);
+const pluginToUninstall = ref<any>(null);
+
+const confirmUninstall = (plugin: any) => {
+    pluginToUninstall.value = plugin;
+    showUninstallModal.value = true;
+};
+
+const executeUninstall = async () => {
+    if (pluginToUninstall.value) {
+        await uninstallPlugin(pluginToUninstall.value.id);
+        showUninstallModal.value = false;
+        pluginToUninstall.value = null;
+    }
+};
+
+watch(activeCategory, (newVal) => {
+    if (newVal === 'plugins') {
+        loadPlugins();
+    }
+});
+
 
 const loadCacheInfo = async () => {
   if (window.electronAPI) {
@@ -293,6 +422,31 @@ const clearCache = async () => {
     await loadCacheInfo();
   }
 };
+
+const isChangingCache = ref(false);
+
+const changeCacheLocation = async () => {
+    if (window.electronAPI && !isChangingCache.value) {
+        try {
+            const path = await window.electronAPI.selectDirectory();
+            if (path) {
+                isChangingCache.value = true;
+                const result = await window.electronAPI.changeCacheLocation(path);
+                if (result.success) {
+                    MessagePlugin.success('缓存位置已修改');
+                    await loadCacheInfo();
+                } else {
+                    MessagePlugin.error(result.message || '修改失败');
+                }
+            }
+        } catch (e) {
+            MessagePlugin.error('操作失败');
+            console.error(e);
+        } finally {
+            isChangingCache.value = false;
+        }
+    }
+}
 
 // Load settings BEFORE mount to avoid visual flicker
 onBeforeMount(async () => {
@@ -479,6 +633,9 @@ onBeforeMount(async () => {
 
 .setting-control {
   margin-left: 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 /* Toggle Switch */
@@ -702,6 +859,19 @@ input:checked + .toggle-slider:before {
   filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
 }
 
+.spin {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
 /* Radio Group */
 .radio-group {
   display: flex;
@@ -723,5 +893,168 @@ input:checked + .toggle-slider:before {
   width: 16px;
   height: 16px;
   cursor: pointer;
+}
+
+/* Plugin Card Styles */
+.plugin-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.plugin-card {
+    background: var(--color-bg-secondary);
+    border-radius: 12px;
+    padding: 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    border: 1px solid var(--color-border);
+    transition: all 0.2s ease;
+}
+
+.plugin-card:hover {
+    border-color: var(--color-accent);
+    box-shadow: var(--shadow-sm);
+    transform: translateY(-2px);
+}
+
+.plugin-info {
+    flex: 1;
+}
+
+
+
+.plugin-tags {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.tag {
+    font-size: 11px;
+    background: var(--color-accent-soft);
+    color: var(--color-accent);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 500;
+}
+
+.action-btn.small {
+    padding: 6px 12px;
+    font-size: 13px;
+}
+
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.plugin-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 16px;
+}
+
+.empty-state {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 0;
+    color: var(--color-text-muted);
+}
+
+.empty-icon {
+    width: 48px;
+    height: 48px;
+    margin-bottom: 16px;
+    opacity: 0.5;
+}
+
+.text-btn {
+    margin-top: 12px;
+    color: var(--color-accent);
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+    text-decoration: underline;
+}
+
+/* Modal */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+    backdrop-filter: blur(4px);
+}
+
+.modal-content {
+    background: var(--color-bg-primary);
+    padding: 24px;
+    border-radius: 16px;
+    width: 400px;
+    box-shadow: var(--shadow-lg);
+    border: 1px solid var(--color-border);
+}
+
+.modal-content h3 {
+    margin-bottom: 16px;
+    font-size: 18px;
+    color: var(--color-text-primary);
+}
+
+.modal-content p {
+    color: var(--color-text-secondary);
+    margin-bottom: 24px;
+    line-height: 1.5;
+}
+
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+}
+
+.plugin-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.plugin-name {
+    font-weight: 500;
+    font-size: 16px;
+    color: var(--color-text-primary);
+}
+
+.plugin-version {
+    font-size: 12px;
+    background: var(--color-bg-tertiary);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--color-text-secondary);
+}
+
+.plugin-desc {
+    font-size: 13px;
+    color: var(--color-text-secondary);
+    padding-bottom: 8px;
+}
+
+.action-btn.small {
+    padding: 6px 12px;
+    font-size: 13px;
 }
 </style>

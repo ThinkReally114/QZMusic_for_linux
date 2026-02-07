@@ -17,12 +17,17 @@ export interface IElectronAPI {
         call: (pluginId: string, method: string, args: any[]) => Promise<any>;
         search: (pluginId: string, query: string, page: number, limit: number) => Promise<any>;
         getLyric: (pluginId: string, id: string) => Promise<any>;
+        getAll: () => Promise<any[]>;
+        uninstall: (pluginId: string) => Promise<boolean>;
+        install: () => Promise<{ success: boolean; message: string }>;
     };
     // Cache Control
     getCacheInfo: () => Promise<{ path: string; size: string; persistCache: boolean }>;
     setCachePersist: (persist: boolean) => Promise<void>;
     openCacheFolder: () => Promise<void>;
     clearCache: () => Promise<void>;
+    changeCacheLocation: (newPath: string) => Promise<{ success: boolean; message: string; path?: string }>;
+    selectDirectory: () => Promise<string | null>;
     // Settings
     settings: {
         getAll: () => Promise<{ persistCache: boolean; theme: 'dark' | 'light'; accentColor: string }>;

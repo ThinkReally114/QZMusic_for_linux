@@ -185,12 +185,12 @@ export const usePlayerStore = defineStore('player', () => {
         if (!song || !song.id) return;
         try {
             // Check if plugin API exists
-            if (window.electronAPI?.plugin?.getLyric) {
-                const rawLyric = await window.electronAPI.plugin.getLyric(song.source || 'kw', song.id.toString());
-                console.log(rawLyric)
-            } else {
-                MessagePlugin.warning("当前插件不支持歌词获取").then()
-            }
+            // if (window.electronAPI?.plugin?.getLyric) {
+            //     const rawLyric = await window.electronAPI.plugin.getLyric(song.source || 'kw', song.id.toString());
+            //     console.log(rawLyric)
+            // } else {
+            //     MessagePlugin.warning("当前插件不支持歌词获取").then()
+            // }
         } catch (e) {
             console.error('Failed to fetch lyrics:', e);
         }

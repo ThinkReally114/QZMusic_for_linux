@@ -24,6 +24,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
         call: (pluginId: string, method: string, args: any[]) => ipcRenderer.invoke('plugin:call', pluginId, method, args),
         search: (pluginId: string, query: string, page: number, limit: number) => ipcRenderer.invoke('plugin:call', pluginId, 'search', [query, page, limit]),
         getLyric: (pluginId: string, id: string) => ipcRenderer.invoke('plugin:call', pluginId, 'getLyric', [id]),
+        getAll: () => ipcRenderer.invoke('plugin:getAll'),
+        uninstall: (id: string) => ipcRenderer.invoke('plugin:uninstall', id),
+        install: () => ipcRenderer.invoke('plugin:install'),
     },
 
     // Cache Control
@@ -31,6 +34,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     setCachePersist: (persist: boolean) => ipcRenderer.invoke('cache:setPersist', persist),
     openCacheFolder: () => ipcRenderer.invoke('cache:openFolder'),
     clearCache: () => ipcRenderer.invoke('cache:clear'),
+    changeCacheLocation: (newPath: string) => ipcRenderer.invoke('cache:changeLocation', newPath),
+    selectDirectory: () => ipcRenderer.invoke('dialog:openDirectory'),
 
     // Settings
     settings: {

@@ -1,11 +1,14 @@
 {
   "name": "qzmusic",
   "private": true,
+  "author": "lqtmcstudio",
+  "description": "QZMusic - 简洁、美观、拓展性强的音乐播放器",
   "version": "0.0.0",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
-    "preview": "electron-vite preview"
+    "preview": "electron-vite preview",
+    "electron:build": "electron-vite build && electron-builder --win --x64 --config --publish never"
   },
   "dependencies": {
     "@applemusic-like-lyrics/core": "^0.2.0",
@@ -25,7 +28,7 @@
     "jss": "^10.10.0",
     "jss-preset-default": "^10.10.0",
     "pinia": "^3.0.4",
-    "tdesign-vue-next": "^1.17.7",
+    "tdesign-vue-next": "^1.18.2",
     "url": "^0.11.4",
     "vite-plugin-wasm": "^3.5.0",
     "vue": "^3.4.21",
@@ -42,5 +45,32 @@
     "vite-plugin-node-polyfills": "^0.25.0",
     "vue-tsc": "^2.0.26"
   },
-  "main": "out/main/index.js"
+  "main": "out/main/index.js",
+  "build": {
+    "productName": "QZMusic",
+    "appId": "love.qz.music",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "public/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    },
+    "extraResources": [
+      {
+        "from": "core/qzplayer.exe",
+        "to": "core/qzplayer.exe"
+      },
+      {
+        "from": "core/libfftw3f-3.dll",
+        "to": "core/libfftw3f-3.dll"
+      }
+    ]
+  }
 }

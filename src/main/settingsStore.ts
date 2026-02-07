@@ -5,7 +5,7 @@ import { app } from 'electron';
 export interface AppSettings {
     // Cache
     persistCache: boolean;
-
+    cachePath: string; // [NEW] Custom cache path
     // Appearance
     theme: 'dark' | 'light';
     accentColor: string;
@@ -13,7 +13,8 @@ export interface AppSettings {
 
 const DEFAULT_SETTINGS: AppSettings = {
     persistCache: true,
-    theme: 'dark',
+    cachePath: path.join(app.getPath('userData'), 'cache'), // Default
+    theme: 'light',
     accentColor: '#ec4141', // Default red
 };
 

@@ -13,12 +13,35 @@
 
       <transition name="slide-fade">
         <div class="settings-panel" v-if="showSettings">
-            <div class="setting-item">
+            <div class="limit-setting">
                 <span class="setting-label">每页显示: {{ limit }} 首</span>
                 <div class="slider-container">
                     <input type="range" min="10" max="100" step="10" v-model.number="limit" class="setting-slider">
                     <div class="slider-track" :style="{ width: ((limit - 10) / 90) * 100 + '%' }"></div>
                 </div>
+            </div>
+
+            <!-- Plugin Selector -->
+            <div class="plugin-select-container">
+                <button class="select-trigger" @click.stop="toggleDropdown" :title="'当前源: ' + activePluginName">
+                    <span>{{ activePluginName }}</span>
+                    <Icon icon="lucide:chevron-down" class="dropdown-icon" :class="{ open: isDropdownOpen }" />
+                </button>
+                
+                <transition name="fade">
+                    <div class="select-options" v-if="isDropdownOpen">
+                        <div 
+                            v-for="plugin in plugins" 
+                            :key="plugin.id" 
+                            class="option" 
+                            :class="{ active: plugin.id === activePlugin }"
+                            @click="selectPlugin(plugin)"
+                        >
+                            {{ plugin.name }}
+                            <Icon icon="lucide:check" v-if="plugin.id === activePlugin" class="check-icon" />
+                        </div>
+                    </div>
+                </transition>
             </div>
         </div>
       </transition>
@@ -102,7 +125,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue';
+import { ref, watch, computed, onMounted, onBeforeUnmount } from 'vue';
 import { useRoute } from 'vue-router';
 import { Icon } from '@iconify/vue';
 import { usePlayerStore } from '../stores/player';
@@ -110,9 +133,9 @@ import { transformSearchSong } from '../utils/songUtils';
 import type { Song } from '../types/song';
 
 const route = useRoute();
-
 const playerStore = usePlayerStore();
 
+// --- State ---
 const query = computed(() => route.query.q as string || '');
 const currentPage = ref(1);
 const showSettings = ref(false);
@@ -124,6 +147,39 @@ const loading = ref(false);
 const error = ref(false);
 const songs = ref<Song[]>([]);
 
+// Plugin Selector State
+const plugins = ref<any[]>([]);
+const activePlugin = ref<string>(''); // Plugin ID
+const isDropdownOpen = ref(false);
+
+const activePluginName = computed(() => {
+    const p = plugins.value.find(p => p.id === activePlugin.value);
+    return p ? p.name : '选择源';
+});
+
+const toggleDropdown = () => {
+    isDropdownOpen.value = !isDropdownOpen.value;
+};
+
+const selectPlugin = (plugin: any) => {
+    if (activePlugin.value !== plugin.id) {
+        activePlugin.value = plugin.id;
+        sessionStorage.setItem('qz-active-plugin', plugin.id);
+        isDropdownOpen.value = false;
+    } else {
+        isDropdownOpen.value = false;
+    }
+};
+
+// Close dropdown on click outside
+const closeDropdown = (e: MouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (!target.closest('.plugin-select-container')) {
+        isDropdownOpen.value = false;
+    }
+};
+
+// --- Computed ---
 const totalPages = computed(() => {
     const t = Number(total.value) || 0;
     const l = Number(limit.value) || 30;
@@ -132,9 +188,8 @@ const totalPages = computed(() => {
 
 const visiblePages = computed(() => {
   const current = currentPage.value;
-  // Ensure totalPages is strictly valid
   const total = totalPages.value; 
-  const delta = 2; // 2 on each side
+  const delta = 2;
   
   let start = Math.max(1, current - delta);
   let end = Math.min(total, current + delta);
@@ -153,19 +208,41 @@ const visiblePages = computed(() => {
   return pages;
 });
 
+// --- Methods ---
+const loadPlugins = async () => {
+    try {
+        if (window.electronAPI?.plugin?.getAll) {
+            const all = await window.electronAPI.plugin.getAll();
+            // Filter valid plugins basically (have id and name)
+            plugins.value = all.filter((p: any) => p.id && p.name);
+            
+            // Restore selection or default
+            const saved = sessionStorage.getItem('qz-active-plugin');
+            if (saved && plugins.value.find(p => p.id === saved)) {
+                activePlugin.value = saved;
+            } else if (plugins.value.length > 0) {
+                // Default to 'wy' if present, else first
+                const wy = plugins.value.find(p => p.id === 'wy');
+                activePlugin.value = wy ? 'wy' : plugins.value[0].id;
+            }
+        }
+    } catch (e) {
+        console.error("Failed to load plugins", e);
+    }
+};
+
 const fetchData = async () => {
-    if (!query.value) return;
+    if (!query.value || !activePlugin.value) return;
     
     loading.value = true;
     error.value = false;
     songs.value = [];
     
     try {
-        const result = await window.electronAPI.plugin.search('wy', query.value, currentPage.value, limit.value);
+        const result = await window.electronAPI.plugin.search(activePlugin.value, query.value, currentPage.value, limit.value);
         
         if (result && result.list) {
             songs.value = result.list.map((item: any) => transformSearchSong(item));
-            // Prioritize songCount if available, otherwise fallback to total, but NEVER use just list length as total
             total.value = result.songCount || result.total || 0;
         } else {
              total.value = 0;
@@ -190,27 +267,17 @@ const handlePlaySong = (index: number) => {
 const getHighlightRegex = (q: string) => {
     const trimmed = q.trim();
     if (!trimmed) return null;
-    
-    // Escape regex characters
     const escapeRegExp = (string: string) => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    
-    // If strict or short query, fallback to exact match or simple space split
-    // "超过2个字相似" -> If > 2 chars, try to match substrings
     if (trimmed.length <= 2) {
         return new RegExp(escapeRegExp(trimmed), 'gi');
     }
-
-    // Generate all substrings of length >= 2
     const substrings = new Set<string>();
-    substrings.add(trimmed); // Always include full query
-    
+    substrings.add(trimmed);
     for (let i = 0; i < trimmed.length; i++) {
         for (let j = i + 2; j <= trimmed.length; j++) {
             substrings.add(trimmed.slice(i, j));
         }
     }
-    
-    // Sort by length match (longest first)
     const sorted = Array.from(substrings).sort((a, b) => b.length - a.length);
     const pattern = sorted.map(s => escapeRegExp(s)).join('|');
     return new RegExp(pattern, 'gi');
@@ -218,22 +285,42 @@ const getHighlightRegex = (q: string) => {
 
 const highlight = (text: string) => {
     if (!query.value || !text) return text;
-    
     const regex = getHighlightRegex(query.value);
     if (!regex) return text;
-
     return text.replace(regex, match => `<span class="highlight">${match}</span>`);
 };
 
+// --- Watchers & Lifecycle ---
 watch(query, () => {
     currentPage.value = 1;
-    fetchData();
-}, { immediate: true });
+    // ensure plugins loaded before fetching? usually mounted happens first
+    if (activePlugin.value) fetchData();
+}, { immediate: false }); // Wait for mount init
 
 watch(limit, (newLimit) => {
     localStorage.setItem('qz-search-limit', newLimit.toString());
     currentPage.value = 1;
     fetchData();
+});
+
+watch(activePlugin, (newVal, oldVal) => {
+    if (newVal && newVal !== oldVal && query.value) {
+        currentPage.value = 1;
+        fetchData();
+    }
+});
+
+onMounted(async () => {
+    document.addEventListener('click', closeDropdown);
+    await loadPlugins();
+    // After plugins loaded, if we have a query, fetch data
+    if (query.value && activePlugin.value) {
+        fetchData();
+    }
+});
+
+onBeforeUnmount(() => {
+    document.removeEventListener('click', closeDropdown);
 });
 </script>
 
@@ -316,18 +403,114 @@ watch(limit, (newLimit) => {
 
 /* Settings Panel */
 .settings-panel {
-    background: var(--color-bg-secondary);
+    background: var(--color-bg-primary);
     border-radius: var(--radius-lg);
     padding: 16px 20px;
     margin-bottom: 20px;
     border: 1px solid var(--color-border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: relative; /* Context */
 }
 
-.setting-item {
+.limit-setting {
     display: flex;
     align-items: center;
     gap: 16px;
 }
+
+/* Plugin Selector */
+.plugin-select-container {
+    position: relative;
+    /* ensure it stays on top when options open? No, options use absolute */
+    z-index: 10;
+}
+
+.select-trigger {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: var(--color-bg-primary);
+    box-shadow: 0 0 4px rgba(0, 0, 0, 0.1);
+    border-radius: var(--radius-md);
+    color: var(--color-text-primary);
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.2s;
+    min-width: 120px;
+    justify-content: space-between;
+}
+
+.select-trigger:hover {
+    background: var(--color-bg-secondary);
+    border-color: var(--color-text-muted);
+}
+
+.dropdown-icon {
+    font-size: 16px;
+    transition: transform 0.2s;
+}
+
+.dropdown-icon.open {
+    transform: rotate(180deg);
+}
+
+.select-options {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    width: 160px;
+    background: var(--color-bg-primary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    padding: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.option {
+    padding: 8px 12px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-size: 14px;
+    color: var(--color-text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    transition: all 0.2s;
+}
+
+.option:hover {
+    background: var(--color-bg-tertiary);
+    color: var(--color-text-primary);
+}
+
+.option.active {
+    background: var(--color-accent-soft);
+    color: var(--color-accent);
+    font-weight: 500;
+}
+
+.check-icon {
+    font-size: 14px;
+}
+
+/* Fade util */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+
 
 .setting-label {
     font-size: 14px;

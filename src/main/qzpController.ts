@@ -3,6 +3,8 @@ import { spawn, ChildProcess } from 'child_process';
 import { Socket } from 'net';
 import { EventEmitter } from 'events';
 import path from 'path';
+import { app } from 'electron';
+import { MessagePlugin } from "tdesign-vue-next";
 
 export class QzpController extends EventEmitter {
     private process: ChildProcess | null = null;
@@ -24,11 +26,10 @@ export class QzpController extends EventEmitter {
 
     private getCorePath(): string {
         const appRoot = process.env.APP_ROOT || process.cwd();
-
-        if (process.platform === 'win32') {
-            return path.join(appRoot, 'core', 'qzplayer.exe');
+        if (app.isPackaged) {
+            return path.join(process.resourcesPath, 'core', 'qzplayer.exe');
         }
-        return "qzplayer"
+        return path.join(appRoot, 'core', 'qzplayer.exe');
     }
 
     start() {
@@ -39,11 +40,13 @@ export class QzpController extends EventEmitter {
 
         this.process.on('error', (err) => {
             console.error('Failed to start QZPlayer:', err);
+            MessagePlugin.error(`启动播放核心时出现异常:${err}`).then();
             this.emit('error', err);
         });
 
         this.process.on('exit', (code, signal) => {
             console.log(`QZPlayer exited with code ${code} and signal ${signal}`);
+            //MessagePlugin.error(`播放核心异常退出!code:${code},signal:${signal}`).then();
             this.emit('exit', { code, signal });
             this.socket?.destroy();
         });
