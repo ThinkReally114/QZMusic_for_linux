@@ -1,225 +1,189 @@
 <template>
   <div class="fullscreen-player" :class="{ active: isPlayerFullScreen }">
-    <div class="player-content">
-      <div class="dismiss-area" @click="toggleFullScreen">
-        <svg class="dismiss-button" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
-             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="6 9 12 15 18 9"></polyline>
-        </svg>
-      </div>
+    <div class="background-container">
+      <BackgroundRender
+          :album="playerStore.currentSong?.picUrl"
+          :album-is-video="false"
+          ref="bgRef"
+          style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;"
+       />
+    </div>
 
-      <div class="background-container">
-        <BackgroundRender
-            :album="currentSong?.picUrl"
-            :lowFreqVolume="1"
-            :hasLyric="true"
+    <div v-if="isPlayerFullScreen" class="drag-bar"></div>
+
+    <div class="horizontal-layout" :class="{ hideLyric: playerStore.hideLyricView }">
+      <div class="thumb">
+        <ControlThumb @click="toggleFullScreen" />
+      </div>
+      <Cover
+        class="cover"
+        :cover-url="playerStore.currentSong?.picUrl"
+        :music-paused="!isPlaying"
+        :cover-video-paused="!isPlaying"
+        :pause-shrink-aspect="0.75"
+      />
+      <div class="controls">
+        <MusicInfo
+            :name="playerStore.currentSong?.name"
+            :artists="playerStore.currentSong?.artist.split('、')??undefined"
+            class="music-info-container"
+        />
+        <div>
+            <BouncingSlider
+                :value="playerStore.currentTime"
+                :min="0"
+                :max="playerStore.duration"
+                :is-playing="isPlaying"
+                @update:value="handleSeek"
+            />
+            <div class="progressBarLabels">
+                <div class="time-label">
+                    {{ formatTime(playerStore.currentTime) }}
+                </div>
+                <div
+                    class="time-label remaining"
+                    @click="showRemaining = !showRemaining"
+                >
+                    {{ showRemaining ? `-${formatTime(playerStore.duration - playerStore.currentTime)}` : formatTime(playerStore.duration) }}
+                </div>
+            </div>
+        </div>
+        <div class="mediaControlls">
+          <MediaButton class="songMediaButton" @click="playerStore.toggleMode">
+            <template v-if="playMode === 'random'">
+              <img :src="IconShuffleActive" :style="iconStyle"/>
+            </template>
+            <template v-else>
+              <img :src="IconShuffle" :style="iconStyle"/>
+            </template>
+          </MediaButton>
+
+          <MediaButton class="songMediaButton" @click="()=>playerStore.prev()">
+            <img :src="IconRewind" />
+          </MediaButton>
+
+          <MediaButton class="songMediaPlayButton" @click="playerStore.togglePlay">
+            <img :src="isPlaying ? IconPause : IconPlay"/>
+          </MediaButton>
+
+          <MediaButton class="songMediaButton" @click="()=>playerStore.next()">
+            <img :src="IconForward" />
+          </MediaButton>
+
+          <MediaButton class="songMediaButton" @click="playerStore.toggleMode">
+            <template v-if="playMode === 'single'">
+              <img :src="IconRepeatOneActive" :style="iconStyle" />
+            </template>
+            <template v-else-if="playMode === 'list'">
+              <img :src="IconRepeatActive" :style="iconStyle" />
+            </template>
+            <template v-else>
+              <img :src="IconRepeat" :style="iconStyle" />
+            </template>
+          </MediaButton>
+        </div>
+        <div class="volumeControllBar">
+          <VolumeControl
+              v-model="playerStore.volume"
+              :min="0"
+              :max="100"
+              :on-update="value => {
+                    playerStore.setVolume( Math.floor(value) )
+                  }"
+          />
+        </div>
+      </div>
+      <div class="lyric">
+        <LyricPlayer
+            v-if="isPlayerFullScreen"
+            ref="lyricPlayerRef"
+            :lyric-lines="toRaw(playerStore.lyrics.lines)"
+            :current-time="playerStore.currentTime"
             :playing="isPlaying"
+            :align-position="0.5"
+            :wordFadeWidth="0.5"
+            :enable-scale="false"
+            :enable-blur="true"
+            :enable-spring="true"
+            @line-click="jumpTime"
+            style="width:100%;height:100%;font-family: 'LyricFont',sans-serif"
+        >
+        </LyricPlayer>
+      </div>
+      <div class="bottomControls">
+        <ToggleIconButton
+            type="playlist"
+        />
+        <ToggleIconButton
+            type="lyrics"
+            :checked="!playerStore.hideLyricView"
+            @click="playerStore.hideLyricView = !playerStore.hideLyricView"
+        />
+        <div style="flex: 1" />
+        <ToggleIconButton
+            type="airplay"
         />
       </div>
-
-      <div class="music-info">
-        <!-- Placeholder for song info, lyrics etc. -->
-        <h1>{{ currentSong?.name || 'No Music' }}</h1>
-        <p>{{ currentSong?.artist }}</p>
-      </div>
-
-      <canvas ref="canvasRef" class="spectrum-canvas"></canvas>
     </div>
+
+    <canvas ref="canvasRef" class="spectrum-canvas"></canvas>
   </div>
 </template>
 
 <script lang="ts" setup>
-import { computed, watch } from 'vue';
+import { computed, toRaw, watch, ref, onMounted, onUnmounted } from 'vue';
 import { usePlayerStore } from '../stores/player';
-import {
-  type AbstractBaseRenderer,
-  type BaseRenderer,
-  BackgroundRender as CoreBackgroundRender,
-  MeshGradientRenderer,
-} from "@applemusic-like-lyrics/core";
-import {
-  defineComponent,
-  onMounted,
-  onUnmounted,
-  type PropType,
-  type Ref,
-  ref,
-  type ShallowRef,
-  useTemplateRef,
-  watchEffect,
-  h,
-} from "vue";
 
-// --- BackgroundRender Component Definition (from User Request) ---
+import "@applemusic-like-lyrics/core/style.css";
+import { LyricPlayer, type LyricPlayerRef, BackgroundRender, type BackgroundRenderRef} from "@applemusic-like-lyrics/vue";
+import { LyricLineMouseEvent } from "@applemusic-like-lyrics/core";
+import Cover from './player/Cover.vue';
+import ControlThumb from './player/ControlThumb.vue';
+import BouncingSlider from './player/BouncingSlider.vue';
+import MusicInfo from './player/MusicInfo.vue';
+import MediaButton from './player/MediaButton.vue';
+import VolumeControl from './player/VolumeControl.vue';
+import ToggleIconButton from './player/ToggleIconButton.vue';
 
-/**
- * 背景渲染组件的引用
- */
-export interface BackgroundRenderRef {
-  /**
-   * 背景渲染实例引用
-   */
-  bgRender?: Ref<AbstractBaseRenderer | undefined>;
-  /**
-   * 将背景渲染实例的元素包裹起来的 DIV 元素实例
-   */
-  wrapperEl: Readonly<ShallowRef<HTMLDivElement | null>>;
-}
+// Icons
+import IconRewind from '@assets/icon_rewind.svg';
+import IconPlay from '@assets/icon_play.svg';
+import IconPause from '@assets/icon_pause.svg';
+import IconForward from '@assets/icon_forward.svg';
+import IconShuffle from '@assets/shuffle.svg';
+import IconShuffleActive from '@assets/shuffle-active.svg';
+import IconRepeat from '@assets/repeat.svg';
+import IconRepeatOneActive from '@assets/repeat-one-active.svg';
+import IconRepeatActive from '@assets/repeat-active.svg';
 
-const backgroundRenderProps = {
-  /**
-   * 设置背景专辑资源
-   */
-  album: {
-    type: [String, Object] as PropType<
-        string | HTMLImageElement | HTMLVideoElement
-    >,
-    required: false,
-  },
-  /**
-   * 设置专辑资源是否为视频
-   */
-  albumIsVideo: {
-    type: Boolean,
-    required: false,
-  },
-  /**
-   * 设置当前背景动画帧率，如果为 `undefined` 则默认为 `30`
-   */
-  fps: {
-    type: Number,
-    required: false,
-  },
-  /**
-   * 设置当前播放状态，如果为 `undefined` 则默认为 `true`
-   */
-  playing: {
-    type: Boolean,
-    required: false,
-  },
-  /**
-   * 设置当前动画流动速度，如果为 `undefined` 则默认为 `2`
-   */
-  flowSpeed: {
-    type: Number,
-    required: false,
-  },
-  /**
-   * 设置背景是否根据“是否有歌词”这个特征调整自身效果，例如有歌词时会变得更加活跃
-   *
-   * 部分渲染器会根据这个特征调整自身效果
-   *
-   * 如果不确定是否需要赋值或无法知晓是否包含歌词，请传入 true 或不做任何处理（默认值为 true）
-   */
-  hasLyric: {
-    type: Boolean,
-    required: false,
-  },
-  /**
-   * 设置低频的音量大小，范围在 80hz-120hz 之间为宜，取值范围在 [0.0-1.0] 之间
-   *
-   * 部分渲染器会根据音量大小调整背景效果（例如根据鼓点跳动）
-   *
-   * 如果无法获取到类似的数据，请传入 undefined 或 1.0 作为默认值，或不做任何处理（默认值即 1.0）
-   */
-  lowFreqVolume: {
-    type: Number,
-    required: false,
-  },
-  /**
-   * 设置当前渲染缩放比例，如果为 `undefined` 则默认为 `0.5`
-   */
-  renderScale: {
-    type: Number,
-    required: false,
-  },
-  /**
-   * 设置渲染器，如果为 `undefined` 则默认为 `MeshGradientRenderer`
-   * 默认渲染器有可能会随着版本更新而更换
-   */
-  renderer: {
-    type: Object as PropType<{ // Use constructor type
-      new (...args: ConstructorParameters<typeof BaseRenderer>): BaseRenderer;
-    }>,
-    required: false,
-  },
-} as const;
+const lyricPlayerRef = ref<LyricPlayerRef>()
+const bgRef = ref<BackgroundRenderRef>();
 
-const BackgroundRender = defineComponent({
-  name: "BackgroundRender",
-  props: backgroundRenderProps,
-  setup(props, { expose }) {
-    const wrapperRef = useTemplateRef<HTMLDivElement>("wrapper-ref");
-    const bgRenderRef = ref<AbstractBaseRenderer>();
+const showRemaining = ref(false);
 
-    onMounted(() => {
-      if (wrapperRef.value) {
-        // @ts-ignore
-        bgRenderRef.value = CoreBackgroundRender.new(
-            props.renderer ?? MeshGradientRenderer,
-        );
-        const el = bgRenderRef.value.getElement();
-        el.style.width = "100%";
-        el.style.height = "100%";
-        wrapperRef.value.appendChild(el);
-      }
-    });
+const formatTime = (miliseconds: number) => {
+  const seconds = miliseconds / 1000;
+  const min = Math.floor(seconds / 60);
+  const sec = Math.floor(seconds % 60);
+  return `${min}:${sec.toString().padStart(2, '0')}`;
+};
 
-    onUnmounted(() => {
-      if (bgRenderRef.value) {
-        bgRenderRef.value.dispose();
-      }
-    });
+const handleSeek = (val: number) => {
+  playerStore.seek(val);
+  lyricPlayerRef.value?.lyricPlayer.value?.setCurrentTime(val,true);
+};
 
-    watchEffect(() => {
-      if (props.album)
-        bgRenderRef.value?.setAlbum(props.album, props.albumIsVideo);
-    });
-
-    watchEffect(() => {
-      if (props.fps) bgRenderRef.value?.setFPS(props.fps);
-    });
-
-    watchEffect(() => {
-      if (props.playing) bgRenderRef.value?.resume();
-      else bgRenderRef.value?.pause();
-    });
-
-    watchEffect(() => {
-      if (props.flowSpeed) bgRenderRef.value?.setFlowSpeed(props.flowSpeed);
-    });
-
-    watchEffect(() => {
-      if (props.renderScale)
-        bgRenderRef.value?.setRenderScale(props.renderScale);
-    });
-
-    watchEffect(() => {
-      if (props.lowFreqVolume !== undefined)
-        bgRenderRef.value?.setLowFreqVolume(props.lowFreqVolume);
-    });
-
-    watchEffect(() => {
-      if (props.hasLyric !== undefined)
-        bgRenderRef.value?.setHasLyric(props.hasLyric ?? true);
-    });
-
-    expose<BackgroundRenderRef>({
-      bgRender: bgRenderRef,
-      wrapperEl: wrapperRef,
-    });
-
-    return () => h("div", { style: "display: contents;", ref: "wrapper-ref" });
-  },
-});
-
-
-// --- FullScreenPlayer Logic ---
 
 const playerStore = usePlayerStore();
 const isPlayerFullScreen = computed(() => playerStore.isPlayerFullScreen);
-const currentSong = computed(() => playerStore.currentSong);
+//const currentSong = computed(() => playerStore.currentSong);
 const isPlaying = computed(() => playerStore.isPlaying);
+const playMode = computed(() => playerStore.playMode);
+
+const iconStyle = {
+    width: "1.3em",
+    height: "1.3em",
+};
 const canvasRef = ref<HTMLCanvasElement | null>(null);
 let animationId: number | null = null;
 let currentData: number[] = new Array(32).fill(0); // For temporal smoothing
@@ -335,35 +299,32 @@ const toggleFullScreen = () => {
   playerStore.toggleFullScreen();
 };
 
+const jumpTime = (e: LyricLineMouseEvent) => {
+  playerStore.seek(e.line.getLine().startTime)
+  lyricPlayerRef.value?.lyricPlayer.value?.setCurrentTime(e.line.getLine().startTime,true);
+}
+
+// watch(()=>playerStore.currentTime,(t)=>{
+//   console.log(toRaw(t))
+// })
 </script>
 
 <style scoped>
 .fullscreen-player {
+  --height: calc(100vh);
   position: fixed;
-  top: 100%; /* Initially hidden below screen */
+  top: var(--height);
   left: 0;
-  width: 100vw;
-  height: 100vh;
-  background-color: #000;
+  width: 100%;
+  height: var(--height);
   z-index: 9999;
   transition: top 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+  background: black; /* Default background if image fails */
   overflow: hidden;
-  display: flex;
-  flex-direction: column;
 }
 
 .fullscreen-player.active {
   top: 0;
-}
-
-.player-content {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  z-index: 10;
-  display: flex;
-  flex-direction: column;
-  color: white;
 }
 
 .background-container {
@@ -374,44 +335,19 @@ const toggleFullScreen = () => {
   height: 100%;
   z-index: -1;
   pointer-events: none;
-  opacity: 0.6; /* Dim background slightly */
 }
 
-.dismiss-area {
-  padding: 2.5%;
-  cursor: pointer;
-  display: flex;
-  justify-content: start;
-  align-items: center;
-  color: rgba(255, 255, 255, 0.5);
-  transition: color 0.2s;
-  z-index: 20;
+.drag-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 50px;
+  z-index: 100;
   -webkit-app-region: drag;
-}
-.dismiss-button {
-  -webkit-app-region: none;
-}
-.dismiss-area:hover {
-  color: white;
+  background: transparent;
 }
 
-.music-info {
-  margin-top: auto;
-  padding: 40px;
-  text-align: left;
-  z-index: 20;
-}
-
-.music-info h1 {
-  font-size: 2rem;
-  font-weight: bold;
-  margin-bottom: 8px;
-}
-
-.music-info p {
-  font-size: 1.2rem;
-  opacity: 0.8;
-}
 
 .spectrum-canvas {
   width: 100%;
@@ -421,9 +357,264 @@ const toggleFullScreen = () => {
   left: 0;
   pointer-events: none;
   z-index: 15;
-  /* Optional: Fade out at top */
   mask-image: linear-gradient(to top, black 0%, transparent 100%);
   -webkit-mask-image: linear-gradient(to top, black 0%, transparent 100%);
+}
+
+@font-face {
+  font-family: 'LyricFont';
+  src: url('@assets/lyricfont.ttf');
+  font-weight: 350;
+}
+
+/* New Horizontal Layout Styles */
+.horizontal-layout {
+  /* --info-size-fract: 0.85fr; */
+  /* --player-size-fract: 1fr; */
+  width: 100%;
+  height: 100%;
+
+  position: relative;
+  display: grid;
+  grid-template-rows: [drag-area] minmax(20px, .20fr) [thumb] auto [cover] auto [music-info] 3fr [buttom-controls] 0fr .1fr;
+  grid-template-columns: [info-side] .50fr [player-side] .50fr [side-controls] 0fr;
+  gap: 8px;
+  transition: all 0.5s ease-in-out;
+  left: 0;
+
+  --hide-lyric-left: 50%;
+
+  --horizontal-layout-max-width: min(50vh, 38vw);
+}
+
+.horizontal-layout .thumb,
+.horizontal-layout .cover,
+.horizontal-layout .controls {
+  transition: left 0.5s cubic-bezier(0.5, 0, 0.5, 1);
+  left: 0;
+}
+
+
+
+.horizontal-layout.hideLyric .lyric {
+  transition:
+    opacity 0.25s cubic-bezier(0.5, 0, 0.5, 1),
+    transform 0.5s cubic-bezier(0.5, 0, 0.5, 1);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.horizontal-layout.hideLyric .thumb,
+.horizontal-layout.hideLyric .cover,
+.horizontal-layout.hideLyric .controls {
+  left: var(--hide-lyric-left);
+}
+
+@media screen and (max-height: 1000px) {
+  .horizontal-layout {
+    --horizontal-layout-max-width: min(45vh, 38vw);
+  }
+}
+
+@media screen and (max-height: 768px) {
+  .horizontal-layout {
+    font-size: 0.8em;
+    gap: 2px;
+    grid-template-rows: [drag-area] minmax(30px, 0.25fr) [thumb] auto [cover] auto [music-info] 3fr [buttom-controls] 0fr 0.2fr;
+  }
+}
+
+.thumb {
+  grid-column: info-side;
+  grid-row: thumb;
+  will-change: transform;
+  justify-self: center;
+  margin: 2vh;
+
+  position: relative;
+  z-index: 10;
+  -webkit-app-region: no-drag;
+}
+
+.cover {
+  margin: 0;
+  aspect-ratio: 1 / 1;
+  grid-column: info-side;
+  grid-row: cover;
+  align-self: center;
+  justify-self: center;
+  width: var(--horizontal-layout-max-width);
+  height: var(--horizontal-layout-max-width);
+
+  position: relative;
+}
+
+.controls {
+  grid-area: music-info / info-side;
+  will-change: transform;
+  justify-self: center;
+
+  mix-blend-mode: plus-lighter;
+  min-width: 0;
+  min-height: 0;
+  width: var(--horizontal-layout-max-width);
+
+  display: flex;
+  flex-direction: column;
+  justify-content: space-evenly;
+  height: 100%;
+
+  position: relative;
+  margin-top: calc(-8px + 1.75em);
+}
+
+.progressBarLabels {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	font-weight: 500;
+	font-size: max(1.2vh, 0.8em);
+	opacity: 0.5;
+	margin-top: 4px;
+
+	@media screen and (max-height: 768px) {
+		margin-top: 0;
+	}
+
+	& > * {
+		flex: 1;
+	}
+
+	& > *:nth-child(2) {
+		flex: 0;
+	}
+
+	& > *:last-child {
+		text-align: right;
+	}
+}
+
+.time-label {
+    font-variant-numeric: tabular-nums;
+    color: white;
+}
+
+.time-label.remaining {
+    cursor: pointer;
+    user-select: none;
+}
+
+.music-info-container {
+    width: 100%;
+    margin-bottom: 2vh;
+}
+
+.lyric {
+  box-sizing: border-box;
+  grid-column: player-side;
+  grid-row: 2 / 5;
+  width: 100%;
+  height: 100%;
+  transition: opacity 0.5s 0.25s cubic-bezier(0.5, 0, 0.5, 1);
+  padding-right: 15%;
+
+  mask-image: linear-gradient(transparent, black 10%, black 90%, transparent);
+
+  contain: paint;
+  pointer-events: none; /* Allow clicks to pass through to elements below */
+
+  /* 修复呼吸点,不要删!*/
+  :deep(.amll-lyric-player) {
+    box-sizing: content-box;
+    pointer-events: auto; /* Re-enable pointer events for the actual lyric player */
+    [class*="interludeDots"] {
+      box-sizing: content-box;
+    }
+  }
+}
+
+@media screen and (max-width: 1600px), (max-height: 1000px) {
+  .lyric {
+    padding-right: 8%;
+  }
+}
+
+.bottomControls {
+  grid-area: buttom-controls / 1 / buttom-controls / 4;
+  gap: 2em;
+  padding-left: 2em;
+  padding-right: 2em;
+  mix-blend-mode: plus-lighter;
+  flex-direction: row-reverse;
+  color: #fff;
+  display: flex;
+}
+
+.songMediaButton,
+.songMediaPlayButton {
+	width: 18%;
+	aspect-ratio: 1 / 1;
+}
+
+.songMediaButton > img {
+    display: block;
+	scale: 3;
+	transition: scale 0.3s;
+
+	@media screen and (max-height: 1080px) {
+		scale: 2;
+	}
+
+	@media screen and (max-height: 768px) {
+		scale: 1.5;
+	}
+
+	@media screen and (max-height: 512px) {
+		scale: 1;
+	}
+
+	@media screen and (max-width: 480px) {
+		scale: 0.5;
+	}
+}
+
+.songMediaPlayButton > img {
+	scale: 2;
+	transition: scale 0.3s;
+
+	@media screen and (max-height: 1080px) {
+		scale: 1.1;
+	}
+
+	@media screen and (max-height: 768px) {
+		scale: 0.8;
+	}
+
+	@media screen and (max-height: 512px) {
+		scale: 0.5;
+	}
+
+	@media screen and (max-width: 480px) {
+		scale: 0.5;
+	}
+}
+.bigControls :deep(button) {
+	height: 10vh !important;
+	width: 10vh !important;
+}
+
+.mediaControlls {
+  justify-content: space-between;
+  align-items: center;
+  display: flex;
+  padding-right: 4px;
+}
+.volumeControllBar {
+  touch-action: none;
+  justify-content: stretch;
+  align-items: center;
+  min-height: 24px;
+  display: flex;
 }
 
 </style>

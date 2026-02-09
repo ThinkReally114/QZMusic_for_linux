@@ -1,8 +1,8 @@
 import { defineStore } from 'pinia';
-import { ref, watch } from 'vue';
+import { ref, shallowRef, watch } from 'vue';
 import { MessagePlugin } from 'tdesign-vue-next';
 import type { Song } from '../types/song';
-
+import { parseLyric } from '../utils/lyricUtil'
 export enum PlayMode {
     List = 'list',
     Single = 'single',
@@ -44,6 +44,7 @@ export const usePlayerStore = defineStore('player', () => {
 
     // UI State
     const isPlayerFullScreen = ref(false);
+    const hideLyricView = ref(false);
 
     // Playlist State
     const savedPlaylist = localStorage.getItem('qz-player-playlist');
@@ -61,7 +62,7 @@ export const usePlayerStore = defineStore('player', () => {
     const hasRetriedWithFreshUrl = ref(false);
 
     // Lyrics State
-    const lyrics = ref<{ lines: any[] }>({ lines: [] });
+    const lyrics = shallowRef<{ lines: any[] }>({ lines: [] });
 
     // --- Helpers ---
     const activateDummyAudio = async () => {
@@ -139,7 +140,7 @@ export const usePlayerStore = defineStore('player', () => {
 
         await activateDummyAudio();
         updateMediaSession(song);
-        // fetchLyrics(song);
+        fetchLyrics(song);
 
         // Get URL (Cache -> Network)
         let playUrl = song.url;
@@ -184,13 +185,14 @@ export const usePlayerStore = defineStore('player', () => {
         lyrics.value = { lines: [] }; // Reset
         if (!song || !song.id) return;
         try {
-            // Check if plugin API exists
-            // if (window.electronAPI?.plugin?.getLyric) {
-            //     const rawLyric = await window.electronAPI.plugin.getLyric(song.source || 'kw', song.id.toString());
-            //     console.log(rawLyric)
-            // } else {
-            //     MessagePlugin.warning("当前插件不支持歌词获取").then()
-            // }
+            //Check if plugin API exists
+            if (window.electronAPI?.plugin?.getLyric) {
+                const rawLyric = await window.electronAPI.plugin.getLyric(song.source || 'kw', song.id.toString());
+                lyrics.value = { lines: parseLyric(rawLyric) }
+                console.log(lyrics.value)
+            } else {
+                MessagePlugin.warning("当前插件不支持歌词获取").then()
+            }
         } catch (e) {
             console.error('Failed to fetch lyrics:', e);
         }
@@ -335,7 +337,7 @@ export const usePlayerStore = defineStore('player', () => {
         if (restoredSong) {
             // Use playSong with autoPlay=false to load the song into the engine
             setTimeout(() => {
-                playSong(restoredSong, false);
+                playSong(restoredSong, true);
                 fetchLyrics(restoredSong);
             }, 0);
         }
@@ -364,6 +366,7 @@ export const usePlayerStore = defineStore('player', () => {
         lyrics,
         fetchLyrics,
         addListMode,
-        playFromList
+        playFromList,
+        hideLyricView
     };
 });

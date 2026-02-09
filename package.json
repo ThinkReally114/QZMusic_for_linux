@@ -43,6 +43,7 @@
     "typescript": "^5.2.2",
     "vite": "^5.1.6",
     "vite-plugin-node-polyfills": "^0.25.0",
+    "vite-svg-loader": "^5.1.0",
     "vue-tsc": "^2.0.26"
   },
   "main": "out/main/index.js",

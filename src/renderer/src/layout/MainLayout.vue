@@ -19,7 +19,7 @@
 import { computed } from 'vue';
 import Sidebar from '../components/Sidebar.vue';
 import TopBar from '../components/TopBar.vue';
-import PlayerBar from '../components/PlayerBar.vue';
+import PlayerBar from '../components/player/PlayerBar.vue';
 import { usePlayerStore } from '../stores/player';
 
 const playerStore = usePlayerStore();
