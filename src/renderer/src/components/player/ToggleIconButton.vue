@@ -63,7 +63,7 @@ const handleClick = (event: MouseEvent) => {
 	opacity: 0.7;
 	width: 3em;
 	height: 3em;
-  cursor: pointer;
+  cursor: default;
 
 	& img {
 		width: 3em;
