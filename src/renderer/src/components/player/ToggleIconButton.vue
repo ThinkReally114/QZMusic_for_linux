@@ -85,6 +85,5 @@ const handleClick = (event: MouseEvent) => {
 
 .toggleIconButton:active {
     opacity: 0.8;
-    transform: scale(0.95);
 }
 </style>
