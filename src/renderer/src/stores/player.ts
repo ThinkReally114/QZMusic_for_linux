@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, shallowRef, watch } from 'vue';
-import { MessagePlugin } from 'tdesign-vue-next';
+import { ElMessage } from 'element-plus';
 import type { Song } from '../types/song';
 import { parseLyric } from '../utils/lyricUtil'
 export enum PlayMode {
@@ -191,7 +191,7 @@ export const usePlayerStore = defineStore('player', () => {
                 lyrics.value = { lines: parseLyric(rawLyric) }
                 console.log(lyrics.value)
             } else {
-                MessagePlugin.warning("当前插件不支持歌词获取").then()
+                ElMessage.warning("当前插件不支持歌词获取")
             }
         } catch (e) {
             console.error('Failed to fetch lyrics:', e);
@@ -263,11 +263,11 @@ export const usePlayerStore = defineStore('player', () => {
         if (playErrorCount.value >= MAX_RETRY_COUNT) {
             window.electronAPI.qzplayer.pause().then();
             isPlaying.value = false;
-            MessagePlugin.error('连续多次播放失败，已停止播放').then();
+            ElMessage.error('连续多次播放失败，已停止播放');
             playErrorCount.value = 0;
             syncDummyAudioState(false);
         } else {
-            MessagePlugin.warning(`播放失败，尝试播放下一首 (${playErrorCount.value}/${MAX_RETRY_COUNT})`).then();
+            ElMessage.warning(`播放失败，尝试播放下一首 (${playErrorCount.value}/${MAX_RETRY_COUNT})`);
             next(false)
         }
     };

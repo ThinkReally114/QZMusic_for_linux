@@ -1,16 +1,29 @@
-//@ts-ignore
-import { spawn, ChildProcess } from 'child_process';
-import { Socket } from 'net';
-import { EventEmitter } from 'events';
-import path from 'path';
+import { spawn, type ChildProcess } from 'node:child_process';
+import { Socket } from 'node:net';
+import { EventEmitter } from 'node:events';
+import path from 'node:path';
 import { app } from 'electron';
-import { MessagePlugin } from "tdesign-vue-next";
 
 export class QzpController extends EventEmitter {
     private process: ChildProcess | null = null;
     private socket: Socket | null = null;
-    private ipcPath: string;
-    private messageBuffer: string = '';
+    private readonly ipcPath: string;
+    private messageBuffer = '';
+    private connectTimer: ReturnType<typeof setTimeout> | null = null;
+    private restartTimer: ReturnType<typeof setTimeout> | null = null;
+    private pendingCommands: any[][] = [];
+    private currentUrl: string | null = null;
+    private lastKnownTime = 0;
+    private desiredPause = true;
+    private volume = 50;
+    private isConnected = false;
+    private isRestarting = false;
+    private isShuttingDown = false;
+
+    private readonly connectRetryDelay = 250;
+    private readonly maxConnectRetries = 20;
+    private readonly maxPendingCommands = 50;
+    private readonly restartDelay = 150;
 
     constructor(ipcPath?: string) {
         super();
@@ -32,138 +45,341 @@ export class QzpController extends EventEmitter {
         return path.join(appRoot, 'core', 'qzplayer.exe');
     }
 
-    start() {
+    start(): void {
+        if (this.process || this.connectTimer || this.isRestarting) return;
+
+        this.isShuttingDown = false;
+        this.messageBuffer = '';
+
         const playerPath = this.getCorePath();
         console.log('Starting QZPlayer from:', playerPath);
 
-        this.process = spawn(playerPath);
+        try {
+            const child = spawn(playerPath, [], {
+                stdio: 'ignore',
+                windowsHide: true,
+            });
+            this.process = child;
 
-        this.process.on('error', (err) => {
-            console.error('Failed to start QZPlayer:', err);
-            MessagePlugin.error(`启动播放核心时出现异常:${err}`).then();
-            this.emit('error', err);
-        });
+            child.once('error', (err) => {
+                if (this.process === child) this.process = null;
+                console.error('Failed to start QZPlayer:', err);
+                this.emitError(err);
+                this.restart(`process error: ${err.message}`);
+            });
 
-        this.process.on('exit', (code, signal) => {
-            console.log(`QZPlayer exited with code ${code} and signal ${signal}`);
-            //MessagePlugin.error(`播放核心异常退出!code:${code},signal:${signal}`).then();
-            this.emit('exit', { code, signal });
-            this.socket?.destroy();
-        });
+            child.once('exit', (code, signal) => {
+                if (this.process === child) this.process = null;
+                console.log(`QZPlayer exited with code ${code} and signal ${signal}`);
+                this.emit('exit', { code, signal });
+                this.destroySocket();
+                this.restart(`process exited: code=${code}, signal=${signal}`);
+            });
+        } catch (err) {
+            const error = err instanceof Error ? err : new Error(String(err));
+            console.error('Failed to spawn QZPlayer:', error);
+            this.emitError(error);
+            this.restart(`spawn failed: ${error.message}`);
+            return;
+        }
 
         this.tryConnect();
     }
 
-    private tryConnect(retries = 10) {
-        if (retries <= 0) {
-            console.error('Could not connect to QZPlayer socket after multiple attempts.');
-            return;
-        }
+    private tryConnect(retries = this.maxConnectRetries): void {
+        if (this.isShuttingDown || this.isRestarting) return;
 
-        setTimeout(() => {
-            this.socket = new Socket();
+        this.clearConnectTimer();
+        this.connectTimer = setTimeout(() => {
+            this.connectTimer = null;
+            if (this.isShuttingDown || this.isRestarting) return;
 
-            this.socket.on('connect', () => {
+            const socket = new Socket();
+            let connected = false;
+            let handledConnectFailure = false;
+            this.socket = socket;
+
+            socket.once('connect', () => {
+                connected = true;
+                this.isConnected = true;
+                this.messageBuffer = '';
                 console.log('Connected to QZPlayer IPC socket');
                 this.emit('ready');
-
-                this.send(['observe_property', 1, 'pause']);
-                this.send(['observe_property', 2, 'time-pos']);
-                this.send(['observe_property', 3, 'duration']);
-                this.send(['observe_property', 4, 'idle-active']);
-                this.send(['observe_property', 5, 'eof-reached']);
-                this.send(['set_property', 'volume', 50])
+                this.initPlayerState();
+                this.restorePlaybackState();
+                this.flushPendingCommands();
             });
 
-            this.socket.on('data', (data) => {
+            socket.on('data', (data) => {
                 this.handleData(data);
             });
 
-            this.socket.on('error', (_) => {
-                this.socket?.destroy();
-                this.tryConnect(retries - 1);
+            socket.once('error', (err) => {
+                if (!connected) {
+                    handledConnectFailure = true;
+                    this.destroySocket(socket);
+                    if (retries > 1) {
+                        this.tryConnect(retries - 1);
+                    } else {
+                        this.restart(`socket connect failed: ${err.message}`);
+                    }
+                    return;
+                }
+
+                console.warn('QZPlayer IPC socket error:', err);
+                this.restart(`socket error: ${err.message}`);
             });
 
-            this.socket.connect(this.ipcPath);
-        }, 500);
+            socket.once('close', () => {
+                if (this.socket === socket) {
+                    this.socket = null;
+                    this.isConnected = false;
+                }
+
+                if (this.isShuttingDown || this.isRestarting) return;
+
+                if (connected) {
+                    this.restart('socket closed');
+                } else if (!handledConnectFailure) {
+                    if (retries > 1) {
+                        this.tryConnect(retries - 1);
+                    } else {
+                        this.restart('socket closed before connect');
+                    }
+                }
+            });
+
+            socket.connect(this.ipcPath);
+        }, this.connectRetryDelay);
     }
 
-    private handleData(data: Buffer) {
-        // Determine message boundaries by newline
+    private initPlayerState(): void {
+        this.send(['observe_property', 1, 'pause']);
+        this.send(['observe_property', 2, 'time-pos']);
+        this.send(['observe_property', 3, 'duration']);
+        this.send(['observe_property', 4, 'idle-active']);
+        this.send(['observe_property', 5, 'eof-reached']);
+        this.send(['set_property', 'volume', this.volume]);
+    }
+
+    private restorePlaybackState(): void {
+        const hasPendingLoad = this.pendingCommands.some((command) => command[0] === 'loadfile');
+        if (!this.currentUrl || hasPendingLoad) return;
+
+        const restoreTime = this.lastKnownTime;
+        this.send(['loadfile', this.currentUrl]);
+        if (restoreTime > 0) {
+            this.send(['seek', restoreTime, 'absolute']);
+        }
+        this.send(['set_property', 'pause', this.desiredPause]);
+    }
+
+    private restart(reason: string): void {
+        if (this.isShuttingDown || this.isRestarting) return;
+
+        console.warn(`Restarting QZPlayer: ${reason}`);
+        this.isRestarting = true;
+        this.emit('restart', { reason });
+
+        this.clearConnectTimer();
+        this.clearRestartTimer();
+        this.destroySocket();
+        this.killProcess();
+
+        this.restartTimer = setTimeout(() => {
+            this.restartTimer = null;
+            this.isRestarting = false;
+            if (!this.isShuttingDown) {
+                this.start();
+            }
+        }, this.restartDelay);
+    }
+
+    private handleData(data: Buffer): void {
         const raw = data.toString();
 
         this.messageBuffer += raw;
         const messages = this.messageBuffer.split('\n');
-
-        // The last part might be an incomplete message, save it back to buffer
         this.messageBuffer = messages.pop() || '';
 
         for (const msg of messages) {
             if (!msg.trim()) continue;
-            //console.log('[IPC]', msg); // User requested raw communication
             try {
                 const json = JSON.parse(msg);
+                this.trackPlayerState(json);
                 this.emit('message', json);
 
-                // Handle specific events
                 if (json.event) {
                     this.emit('event', json);
                 }
-            } catch (e) {
+            } catch {
                 console.error('Failed to parse QZPlayer message:', msg);
             }
         }
     }
 
-    async send(command: any[]) {
-        if (!this.socket || this.socket.destroyed) {
+    async send(command: any[]): Promise<void> {
+        this.trackOutgoingCommand(command);
+
+        if (!this.socket || this.socket.destroyed || !this.isConnected) {
             console.warn('QZPlayer socket not connected');
+            this.queueCommand(command);
+            if (!this.process && !this.isRestarting && !this.isShuttingDown) {
+                this.start();
+            }
+            return;
+        }
+
+        this.sendNow(command);
+    }
+
+    private sendNow(command: any[]): void {
+        if (!this.socket || this.socket.destroyed || !this.isConnected) {
+            this.queueCommand(command);
             return;
         }
 
         const payload = JSON.stringify({ command });
-        console.log('[QZPlayer TX]', payload); // User requested raw communication
-        this.socket.write(payload + '\n');
+        console.log('[QZPlayer TX]', payload);
+
+        try {
+            this.socket.write(payload + '\n');
+        } catch (err) {
+            const error = err instanceof Error ? err : new Error(String(err));
+            this.queueCommand(command);
+            this.restart(`socket write failed: ${error.message}`);
+        }
     }
 
-    // Convenience methods
-    async load(url: string) {
+    async load(url: string): Promise<void> {
         return this.send(['loadfile', url]);
     }
 
-    async play() {
+    async play(): Promise<void> {
         return this.send(['set_property', 'pause', false]);
     }
 
-    async pause() {
+    async pause(): Promise<void> {
         return this.send(['set_property', 'pause', true]);
     }
 
-    async togglePause() {
+    async togglePause(): Promise<void> {
         return this.send(['cycle', 'pause']);
     }
 
-    async stop() {
+    async stop(): Promise<void> {
         return this.send(['stop']);
     }
 
-    async setVolume(vol: number) {
+    async setVolume(vol: number): Promise<void> {
         return this.send(['set_property', 'volume', vol]);
     }
 
-    async seek(seconds: number) {
+    async seek(seconds: number): Promise<void> {
         return this.send(['seek', seconds, 'absolute']);
     }
 
-    destroy() {
-        if (this.process) {
-            console.log('Killing QZPlayer process...');
-            this.process.kill();
-            this.process = null;
-        }
-        if (this.socket) {
-            this.socket.destroy();
+    destroy(): void {
+        this.isShuttingDown = true;
+        this.isRestarting = false;
+        this.clearConnectTimer();
+        this.clearRestartTimer();
+        this.destroySocket();
+        this.killProcess();
+    }
+
+    private destroySocket(socket = this.socket): void {
+        if (!socket) return;
+
+        if (this.socket === socket) {
             this.socket = null;
+            this.isConnected = false;
+        }
+
+        socket.removeAllListeners('data');
+        socket.removeAllListeners('error');
+        socket.removeAllListeners('close');
+        socket.destroy();
+    }
+
+    private killProcess(): void {
+        const child = this.process;
+        this.process = null;
+        if (!child) return;
+
+        console.log('Killing QZPlayer process...');
+        child.removeAllListeners('error');
+        child.removeAllListeners('exit');
+        if (!child.killed) {
+            child.kill('SIGKILL');
+        }
+    }
+
+    private clearConnectTimer(): void {
+        if (this.connectTimer) {
+            clearTimeout(this.connectTimer);
+            this.connectTimer = null;
+        }
+    }
+
+    private clearRestartTimer(): void {
+        if (this.restartTimer) {
+            clearTimeout(this.restartTimer);
+            this.restartTimer = null;
+        }
+    }
+
+    private queueCommand(command: any[]): void {
+        if (command[0] === 'observe_property') return;
+        this.pendingCommands.push(command);
+        if (this.pendingCommands.length > this.maxPendingCommands) {
+            this.pendingCommands.shift();
+        }
+    }
+
+    private flushPendingCommands(): void {
+        const commands = this.pendingCommands.splice(0);
+        for (const command of commands) {
+            this.sendNow(command);
+        }
+    }
+
+    private trackPlayerState(json: any): void {
+        if (json?.event !== 'property-change') return;
+
+        if (json.name === 'pause') {
+            this.desiredPause = Boolean(json.data);
+        } else if (json.name === 'time-pos' && typeof json.data === 'number') {
+            this.lastKnownTime = json.data;
+        }
+    }
+
+    private trackOutgoingCommand(command: any[]): void {
+        const [name, ...args] = command;
+
+        if (name === 'loadfile' && typeof args[0] === 'string') {
+            this.currentUrl = args[0];
+            this.lastKnownTime = 0;
+        } else if (name === 'seek' && typeof args[0] === 'number') {
+            this.lastKnownTime = args[0];
+        } else if (name === 'stop') {
+            this.currentUrl = null;
+            this.lastKnownTime = 0;
+            this.desiredPause = true;
+        } else if (name === 'cycle' && args[0] === 'pause') {
+            this.desiredPause = !this.desiredPause;
+        } else if (name === 'set_property') {
+            if (args[0] === 'pause') {
+                this.desiredPause = Boolean(args[1]);
+            } else if (args[0] === 'volume' && typeof args[1] === 'number') {
+                this.volume = args[1];
+            }
+        }
+    }
+
+    private emitError(err: Error): void {
+        if (this.listenerCount('error') > 0) {
+            this.emit('error', err);
         }
     }
 }

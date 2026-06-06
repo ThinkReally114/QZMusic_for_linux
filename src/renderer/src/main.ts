@@ -4,7 +4,7 @@ import { createPinia } from 'pinia'
 import { createRouter, createWebHashHistory } from 'vue-router'
 
 import App from './App.vue'
-import 'tdesign-vue-next/es/style/index.css'
+import 'element-plus/dist/index.css'
 
 const pinia = createPinia()
 const router = createRouter({

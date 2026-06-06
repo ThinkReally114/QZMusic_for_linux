@@ -251,7 +251,7 @@
 <script setup lang="ts">
 import { ref, reactive, onBeforeMount, nextTick, watch } from 'vue';
 import { Icon } from '@iconify/vue';
-import { MessagePlugin } from 'tdesign-vue-next';
+import { ElMessage } from 'element-plus';
 import { usePlayerStore } from '../stores/player';
 
 const playerStore = usePlayerStore();
@@ -323,17 +323,17 @@ const installPluginFromFile = async () => {
         if (window.electronAPI?.plugin?.install) {
             const result = await window.electronAPI.plugin.install();
             if (result.success) {
-                MessagePlugin.success(result.message || '安装成功');
+                ElMessage.success(result.message || '安装成功');
                 await loadPlugins();
             } else {
                 if (result.message !== 'canceled') { // Assuming 'canceled' might be a thing, or just show whatever message comes back
-                     MessagePlugin.error(result.message || '安装失败');
+                     ElMessage.error(result.message || '安装失败');
                 }
             }
         }
     } catch (e) {
         console.error('Failed to install plugin', e);
-        MessagePlugin.error('安装过程中发生错误');
+        ElMessage.error('安装过程中发生错误');
     }
 }
 
@@ -433,14 +433,14 @@ const changeCacheLocation = async () => {
                 isChangingCache.value = true;
                 const result = await window.electronAPI.changeCacheLocation(path);
                 if (result.success) {
-                    MessagePlugin.success('缓存位置已修改');
+                    ElMessage.success('缓存位置已修改');
                     await loadCacheInfo();
                 } else {
-                    MessagePlugin.error(result.message || '修改失败');
+                    ElMessage.error(result.message || '修改失败');
                 }
             }
         } catch (e) {
-            MessagePlugin.error('操作失败');
+            ElMessage.error('操作失败');
             console.error(e);
         } finally {
             isChangingCache.value = false;

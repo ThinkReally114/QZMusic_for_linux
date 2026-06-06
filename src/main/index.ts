@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import fs from 'node:fs'
 import { QzpController } from './qzpController'
-import { startProxyServer, cleanupCache, getCacheDir, getCacheSize, setPersistCache, clearCacheNow } from './proxyServer'
+import { startProxyServer, cleanupCache, getCacheDir, getCacheSize, setPersistCache, clearCacheNow, refreshCacheDir } from './proxyServer'
 import { PluginSystem } from './pluginSystem'
 import { loadSettings, saveSettings, getSetting, AppSettings } from './settingsStore'
 
@@ -202,23 +202,8 @@ ipcMain.handle('cache:changeLocation', async (_, newPath: string) => {
             }
         }
 
-        // 3. Update Settings
         saveSettings({ cachePath: newPath })
-
-        // 4. Update Proxy Server if needed (it reads from settings or we notify it)
-        // Ideally proxyServer should just use `getCacheDir()` which now reads from settings? 
-        // Wait, `getCacheDir` in proxyServer.ts probably uses hardcoded or internal variable.
-        // We need to update proxyServer.ts logic too or restart it.
-        // For now, let's assume getCacheDir() needs update or we restart proxy.
-        // Actually, let's make sure proxyServer gets the new path. 
-        // We'll restart proxy to be safe or add a setPath method.
-        // *Self-correction*: The simple way is to restart the proxy server function implies checking `getCacheDir` from settings.
-        // Let's ensure proxyServer.ts `setCacheDir` exists or similar.
-
-        // RE-CHECK: `proxyServer.ts` isn't fully visible here. 
-        // I'll add a TODO/Warning in comments and handle proxy update via current imports if possible.
-        // Since I can't `import { setCachePath } from './proxyServer'` yet (I haven't checked if it exists), 
-        // I will trust that the next step or automatic reload handles it, OR better: implement `updateCachePath` in proxyServer.
+        refreshCacheDir()
 
         return { success: true, message: 'Cache location updated', path: newPath }
     } catch (e: any) {

@@ -93,9 +93,44 @@
           />
         </div>
       </div>
-      <div class="lyric">
+      <div class="lyric" :class="{ 'show-playlist': showPlaylistPanel }">
+        <!-- Playlist Panel -->
+        <Transition name="playlist-fade">
+          <div v-if="showPlaylistPanel" class="playlist-panel">
+            <div class="playlist-header">
+              <span class="playlist-title">播放队列</span>
+              <span class="playlist-count">{{ playerStore.playlist.length }} 首</span>
+            </div>
+            <div class="playlist-scroll">
+              <div
+                v-for="(song, index) in playerStore.playlist"
+                :key="song.id"
+                class="playlist-item"
+                :class="{ active: index === playerStore.playlist.findIndex(s => s.id === playerStore.currentSong?.id) }"
+                @click="playFromPlaylist(index)"
+              >
+                <div class="item-index">
+                  <span v-if="index === playerStore.playlist.findIndex(s => s.id === playerStore.currentSong?.id)" class="playing-indicator">
+                    <span class="bar"></span>
+                    <span class="bar"></span>
+                    <span class="bar"></span>
+                  </span>
+                  <span v-else>{{ index + 1 }}</span>
+                </div>
+                <img v-if="song.picUrl" :src="song.picUrl" class="item-cover" />
+                <div v-else class="item-cover item-cover-placeholder"></div>
+                <div class="item-info">
+                  <div class="item-name">{{ song.name }}</div>
+                  <div class="item-artist">{{ song.artist }}</div>
+                </div>
+                <div class="item-duration">{{ song.duration }}</div>
+              </div>
+            </div>
+          </div>
+        </Transition>
+        <!-- Lyric Player -->
         <LyricPlayer
-            v-if="isPlayerFullScreen"
+            v-if="isPlayerFullScreen && !showPlaylistPanel"
             ref="lyricPlayerRef"
             :lyric-lines="toRaw(playerStore.lyrics.lines)"
             :current-time="playerStore.currentTime"
@@ -113,6 +148,8 @@
       <div class="bottomControls">
         <ToggleIconButton
             type="playlist"
+            :checked="showPlaylistPanel"
+            @click="togglePlaylistPanel"
         />
         <ToggleIconButton
             type="lyrics"
@@ -160,6 +197,8 @@ const lyricPlayerRef = ref<LyricPlayerRef>()
 const bgRef = ref<BackgroundRenderRef>();
 
 const showRemaining = ref(false);
+const showPlaylistPanel = ref(false);
+const lyricState = ref(false);
 
 const formatTime = (miliseconds: number) => {
   const seconds = miliseconds / 1000;
@@ -168,15 +207,20 @@ const formatTime = (miliseconds: number) => {
   return `${min}:${sec.toString().padStart(2, '0')}`;
 };
 
+const syncLyricPlayerSeek = (time: number) => {
+  const lyricPlayer = lyricPlayerRef.value?.lyricPlayer.value;
+  lyricPlayer?.resetScroll();
+  lyricPlayer?.setCurrentTime(time, true);
+};
+
 const handleSeek = (val: number) => {
   playerStore.seek(val);
-  lyricPlayerRef.value?.lyricPlayer.value?.setCurrentTime(val,true);
+  syncLyricPlayerSeek(val);
 };
 
 
 const playerStore = usePlayerStore();
 const isPlayerFullScreen = computed(() => playerStore.isPlayerFullScreen);
-//const currentSong = computed(() => playerStore.currentSong);
 const isPlaying = computed(() => playerStore.isPlaying);
 const playMode = computed(() => playerStore.playMode);
 
@@ -300,9 +344,25 @@ const toggleFullScreen = () => {
 };
 
 const jumpTime = (e: LyricLineMouseEvent) => {
-  playerStore.seek(e.line.getLine().startTime)
-  lyricPlayerRef.value?.lyricPlayer.value?.setCurrentTime(e.line.getLine().startTime,true);
+  const time = e.line.getLine().startTime;
+  playerStore.seek(time);
+  syncLyricPlayerSeek(time);
 }
+
+const togglePlaylistPanel = () => {
+  const opening = !showPlaylistPanel.value;
+  opening
+      ? (lyricState.value = playerStore.hideLyricView, playerStore.hideLyricView = false)
+      : (playerStore.hideLyricView = lyricState.value);
+  showPlaylistPanel.value = opening;
+};
+
+const playFromPlaylist = (index: number) => {
+  const song = playerStore.playlist[index];
+  if (song) {
+    playerStore.playSong(song);
+  }
+};
 
 // watch(()=>playerStore.currentTime,(t)=>{
 //   console.log(toRaw(t))
@@ -539,6 +599,10 @@ const jumpTime = (e: LyricLineMouseEvent) => {
   }
 }
 
+.lyric.show-playlist {
+  mask-image: linear-gradient(black 0%, black 90%, transparent);
+}
+
 .bottomControls {
   grid-area: buttom-controls / 1 / buttom-controls / 4;
   gap: 2em;
@@ -615,6 +679,201 @@ const jumpTime = (e: LyricLineMouseEvent) => {
   align-items: center;
   min-height: 24px;
   display: flex;
+}
+
+/* Playlist Panel Styles */
+.playlist-panel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  backdrop-filter: blur(30px);
+  -webkit-backdrop-filter: blur(30px);
+  border-radius: 20px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  pointer-events: auto;
+  margin-right: 15%;
+}
+
+@media screen and (max-width: 1600px), (max-height: 1000px) {
+  .playlist-panel {
+    margin-right: 8%;
+  }
+}
+
+.playlist-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.playlist-title {
+  font-size: 1.2em;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.playlist-count {
+  font-size: 0.9em;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.playlist-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 12px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
+.playlist-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.playlist-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.playlist-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+
+.playlist-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.playlist-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.playlist-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.playlist-item.active {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.playlist-item.active .item-name {
+  color: rgba(255, 255, 255, 1);
+}
+
+.item-index {
+  width: 28px;
+  text-align: center;
+  font-size: 0.85em;
+  color: rgba(255, 255, 255, 0.4);
+  flex-shrink: 0;
+}
+
+.playlist-item.active .item-index {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.playing-indicator {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 2px;
+  height: 14px;
+}
+
+.playing-indicator .bar {
+  width: 3px;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 2px;
+  animation: soundBars 0.8s ease-in-out infinite;
+}
+
+.playing-indicator .bar:nth-child(1) {
+  height: 60%;
+  animation-delay: 0s;
+}
+
+.playing-indicator .bar:nth-child(2) {
+  height: 100%;
+  animation-delay: 0.2s;
+}
+
+.playing-indicator .bar:nth-child(3) {
+  height: 40%;
+  animation-delay: 0.4s;
+}
+
+@keyframes soundBars {
+  0%, 100% {
+    transform: scaleY(0.5);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+.item-cover {
+  width: 40px;
+  height: 40px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.item-cover-placeholder {
+  background: linear-gradient(135deg, rgba(255,255,255,0.1), rgba(255,255,255,0.05));
+}
+
+.item-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.item-name {
+  font-size: 0.95em;
+  color: rgba(255, 255, 255, 0.85);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.item-artist {
+  font-size: 0.8em;
+  color: rgba(255, 255, 255, 0.45);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.item-duration {
+  font-size: 0.85em;
+  color: rgba(255, 255, 255, 0.4);
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Playlist Panel Transition */
+.playlist-fade-enter-active,
+.playlist-fade-leave-active {
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.playlist-fade-enter-from,
+.playlist-fade-leave-to {
+  opacity: 0;
+  transform: translateX(20px);
 }
 
 </style>

@@ -4,6 +4,8 @@ import vue from '@vitejs/plugin-vue'
 import vueJsx from '@vitejs/plugin-vue-jsx'
 import wasm from 'vite-plugin-wasm'
 
+const amllPackage = (...segments: string[]): string => resolve(__dirname, 'amll-local/packages', ...segments)
+
 export default defineConfig({
     main: {
     },
@@ -12,6 +14,11 @@ export default defineConfig({
     renderer: {
         resolve: {
             alias: {
+                '@applemusic-like-lyrics/core/style.css': amllPackage('core/src/styles/index.css'),
+                '@applemusic-like-lyrics/core': amllPackage('core/src/index.ts'),
+                '@applemusic-like-lyrics/lyric': amllPackage('lyric/src/index.ts'),
+                '@applemusic-like-lyrics/ttml': amllPackage('ttml/src/index.ts'),
+                '@applemusic-like-lyrics/vue': amllPackage('vue/src/index.ts'),
                 '@renderer': resolve('src/renderer/src'),
                 '@assets': resolve('src/renderer/src/assets')
             }
