@@ -1,8 +1,7 @@
 import { app } from 'electron'
-import path from 'path'
-import fs from 'fs'
+import path from 'node:path'
+import fs from 'node:fs'
 import { createRequire } from 'node:module'
-
 
 const require = createRequire(import.meta.url)
 
@@ -12,218 +11,400 @@ export interface UrlResponse {
     error?: string
 }
 
-type PluginModule = {
-    getUrl?: (id: string, quality: string) => Promise<string> | string,
+type PluginInfo = {
+    info?: {
+        id?: string
+        name?: string
+        description?: string
+        version?: string | number
+    }
+    quality?: any[]
+    supportFunc?: string[]
+    env?: any[]
+    ext?: any[]
+}
+
+type PluginModule = Record<string, any> & {
+    default?: PluginModule
+    pluginInfo?: PluginInfo
+    info?: PluginInfo['info']
+    getUrl?: (...args: any[]) => any
+    getLyric?: (...args: any[]) => any
     musicSearch?: {
-        search: (query: string, page: number, limit: number) => Promise<any> | any
-    },
-    getLyric?: (id: string) => Promise<string> | object
+        search?: (...args: any[]) => any
+    } | ((...args: any[]) => any)
+    search?: (...args: any[]) => any
+}
+
+type ModuleCacheEntry = {
+    mtimeMs: number
+    module: PluginModule
+}
+
+const moduleCache = new Map<string, ModuleCacheEntry>()
+
+function getPluginsPath(): string {
+    return path.join(app.getPath('userData'), 'plugins')
+}
+
+function getPluginEntry(pluginId: string): string {
+    return path.join(getPluginsPath(), pluginId, 'index.js')
+}
+
+function unwrapModule(rawModule: any): PluginModule {
+    if (
+        rawModule?.default &&
+        typeof rawModule.default === 'object' &&
+        (
+            rawModule.__esModule ||
+            Object.keys(rawModule).length === 1 ||
+            rawModule.default.pluginInfo ||
+            rawModule.default.getUrl
+        )
+    ) {
+        return rawModule.default
+    }
+    return rawModule
+}
+
+function loadPluginModule(pluginPath: string, forceReload = false): PluginModule {
+    const resolvedPath = require.resolve(pluginPath)
+    const mtimeMs = fs.statSync(pluginPath).mtimeMs
+    const cached = moduleCache.get(resolvedPath)
+
+    if (!forceReload && cached?.mtimeMs === mtimeMs) {
+        return cached.module
+    }
+
+    delete require.cache[resolvedPath]
+    const pluginModule = unwrapModule(require(resolvedPath))
+    if (!pluginModule || (typeof pluginModule !== 'object' && typeof pluginModule !== 'function')) {
+        throw new Error('Plugin entry must export an object')
+    }
+
+    moduleCache.set(resolvedPath, { mtimeMs, module: pluginModule })
+    return pluginModule
+}
+
+function clearPluginModuleCache(pluginPath: string): void {
+    try {
+        const resolvedPath = require.resolve(pluginPath)
+        moduleCache.delete(resolvedPath)
+        delete require.cache[resolvedPath]
+    } catch {
+        // The module may not have been loaded yet.
+    }
+}
+
+function getPluginInfo(pluginModule: PluginModule): PluginInfo {
+    if (pluginModule.pluginInfo?.info) return pluginModule.pluginInfo
+    if (pluginModule.info?.id) return { info: pluginModule.info }
+    return {}
+}
+
+function getPluginId(pluginModule: PluginModule): string | null {
+    const id = getPluginInfo(pluginModule).info?.id
+    if (typeof id !== 'string' || !/^[a-z0-9._-]+$/i.test(id)) return null
+    return id
+}
+
+async function unwrapPluginResult<T = any>(value: any): Promise<T> {
+    const resolved = await value
+    if (
+        resolved &&
+        typeof resolved === 'object' &&
+        'promise' in resolved &&
+        resolved.promise &&
+        typeof resolved.promise.then === 'function'
+    ) {
+        return await resolved.promise
+    }
+    return resolved as T
+}
+
+function normalizeSearchItem(item: any, pluginId: string): any {
+    const id = item?.songmid ?? item?.id ?? item?.songId ?? ''
+    const artist = item?.singer ?? item?.artists ?? item?.artist ?? item?.artistName ?? ''
+    const pic = item?.img ?? item?.pic ?? item?.picUrl ?? item?.cover ?? ''
+    const mediumPic = item?.m_img ?? item?.mPic ?? pic
+    const smallPic = item?.s_img ?? item?.sPic ?? mediumPic
+    const types = item?.types ?? item?.qualities ?? {}
+
+    return {
+        ...item,
+        id: String(id),
+        songmid: String(id),
+        singer: Array.isArray(artist) ? artist.join('、') : String(artist),
+        artists: Array.isArray(artist) ? artist.join('、') : String(artist),
+        img: pic,
+        pic,
+        m_img: mediumPic,
+        s_img: smallPic,
+        source: item?.source || pluginId,
+        types,
+        qualities: types,
+    }
+}
+
+function normalizeSearchResult(result: any, pluginId: string): any {
+    const rawList = Array.isArray(result) ? result : result?.list
+    const list = Array.isArray(rawList)
+        ? rawList.filter(Boolean).map((item) => normalizeSearchItem(item, pluginId))
+        : []
+
+    if (Array.isArray(result)) {
+        return {
+            list,
+            total: list.length,
+            allPage: 1,
+            limit: list.length,
+            source: pluginId,
+        }
+    }
+
+    return {
+        ...result,
+        list,
+        total: result?.total ?? result?.songCount ?? list.length,
+        allPage: result?.allPage ?? 1,
+        source: result?.source ?? pluginId,
+    }
 }
 
 export class PluginSystem {
-    private pluginId: string
+    private readonly pluginId: string
     private plugin: PluginModule | null = null
+
     constructor(pluginId: string) {
         this.pluginId = pluginId
         this.loadPlugin()
     }
 
-    private loadPlugin() {
+    private loadPlugin(): void {
         try {
-            const pluginPath = path.join(
-                app.getPath('userData'),
-                'plugins',
-                this.pluginId,
-                'index.js'
-            )
-
+            const pluginPath = getPluginEntry(this.pluginId)
             if (!fs.existsSync(pluginPath)) {
                 throw new Error(`Plugin ${this.pluginId} not found`)
             }
-
-            delete require.cache[require.resolve(pluginPath)]
-
-            this.plugin = require(pluginPath)
-
-        } catch (e: any) {
-            console.error(`[PluginSystem] load failed:`, e)
+            this.plugin = loadPluginModule(pluginPath)
+        } catch (err) {
+            console.error(`[PluginSystem] Failed to load ${this.pluginId}:`, err)
             this.plugin = null
         }
     }
-    async getUrl(id: string, quality: string): Promise<UrlResponse> {
-        if (!this.plugin?.getUrl) {
-            return {
-                success: false,
-                error: 'getUrl not implemented'
-            }
+
+    private getRequiredPlugin(): PluginModule {
+        if (!this.plugin) {
+            throw new Error(`Plugin ${this.pluginId} is unavailable`)
+        }
+        return this.plugin
+    }
+
+    async call(method: string, args: any[] = []): Promise<any> {
+        if (method === 'search') {
+            return this.search(String(args[0] ?? ''), Number(args[1]) || 1, Number(args[2]) || 30)
+        }
+        if (method === 'getLyric') {
+            return this.getLyric(String(args[0] ?? ''))
+        }
+        if (method === 'getUrl') {
+            return this.getUrl(String(args[0] ?? ''), String(args[1] ?? ''))
         }
 
+        const plugin = this.getRequiredPlugin()
+        const target = plugin[method]
+        if (typeof target !== 'function') {
+            throw new Error(`Method ${method} not found`)
+        }
+        const result = await unwrapPluginResult(target.apply(plugin, args))
+        return Buffer.isBuffer(result) ? result.toString('utf8') : result
+    }
+
+    async getUrl(id: string, quality: string): Promise<UrlResponse> {
         try {
-            // New behavior: plugin returns raw url string or throws
-            const url = await this.plugin.getUrl(id, quality)
-
-            if (typeof url !== 'string' || !url.startsWith('http')) {
-                return {
-                    success: false,
-                    error: 'Invalid URL scheme'
-                }
+            const plugin = this.getRequiredPlugin()
+            if (typeof plugin.getUrl !== 'function') {
+                return { success: false, error: 'getUrl not implemented' }
             }
 
-            return {
-                success: true,
-                url
+            const result = await unwrapPluginResult(plugin.getUrl.call(plugin, id, quality))
+            const url = typeof result === 'string' ? result : result?.url
+
+            if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) {
+                return { success: false, error: 'Invalid URL returned by plugin' }
             }
 
-        } catch (e: any) {
-            return {
-                success: false,
-                error: e.message || 'plugin error'
-            }
+            return { success: true, url }
+        } catch (err: any) {
+            return { success: false, error: err?.message || 'Plugin error' }
         }
     }
 
     async search(query: string, page: number, limit: number): Promise<any> {
-        if (!this.plugin?.musicSearch?.search) {
+        try {
+            const plugin = this.getRequiredPlugin()
+            let result: any
+
+            if (plugin.musicSearch && typeof plugin.musicSearch === 'object' && typeof plugin.musicSearch.search === 'function') {
+                result = await unwrapPluginResult(
+                    plugin.musicSearch.search.call(plugin.musicSearch, query, page, limit),
+                )
+            } else if (typeof plugin.musicSearch === 'function') {
+                result = await unwrapPluginResult(plugin.musicSearch.call(plugin, query, page, limit))
+            } else if (typeof plugin.search === 'function') {
+                result = await unwrapPluginResult(plugin.search.call(plugin, query, page, limit))
+            } else {
+                return {
+                    list: [],
+                    total: 0,
+                    allPage: 0,
+                    error: 'Search not implemented',
+                }
+            }
+
+            return normalizeSearchResult(result, this.pluginId)
+        } catch (err: any) {
+            console.error(`[PluginSystem] Search failed for ${this.pluginId}:`, err)
             return {
                 list: [],
                 total: 0,
                 allPage: 0,
-                error: 'Search not implemented'
+                error: err?.message || 'Search failed',
             }
         }
-        return await this.plugin.musicSearch.search(query, page, limit)
     }
 
     async getLyric(id: string): Promise<any> {
-        console.log("getLyric not implemented");
-        if (!this.plugin?.getLyric) {
-            console.log("getLyric not implemented2");
-            return
-        }
         try {
-            const result = await this.plugin.getLyric(id)
-            console.log(result)
+            const plugin = this.getRequiredPlugin()
+            if (typeof plugin.getLyric !== 'function') {
+                return null
+            }
+
+            const result = await unwrapPluginResult(plugin.getLyric.call(plugin, id))
+            if (Buffer.isBuffer(result)) return result.toString('utf8')
             return result
-        } catch (e: any) {
-            console.log(e)
-            console.error(e)
-            return {}
+        } catch (err) {
+            console.error(`[PluginSystem] Failed to get lyric from ${this.pluginId}:`, err)
+            return null
         }
     }
 
     static getAllPlugins(): any[] {
+        const pluginsPath = getPluginsPath()
+        if (!fs.existsSync(pluginsPath)) return []
+
         try {
-            const pluginsPath = path.join(app.getPath('userData'), 'plugins')
-            if (!fs.existsSync(pluginsPath)) return []
+            return fs.readdirSync(pluginsPath, { withFileTypes: true })
+                .filter((entry) => entry.isDirectory())
+                .map((entry) => {
+                    const pluginPath = getPluginEntry(entry.name)
+                    if (!fs.existsSync(pluginPath)) return null
 
-            return fs.readdirSync(pluginsPath).map(dir => {
-                const pluginPath = path.join(pluginsPath, dir, 'index.js')
-                if (fs.existsSync(pluginPath)) {
                     try {
-                        // Clear cache to ensure fresh load
-                        delete require.cache[require.resolve(pluginPath)]
-                        const pluginModule = require(pluginPath)
-                        if (pluginModule.pluginInfo) {
-                            return {
-                                ...pluginModule.pluginInfo.info,
-                                quality: pluginModule.pluginInfo.quality,
-                                _path: dir
-                            }
-                        }
+                        const pluginModule = loadPluginModule(pluginPath)
+                        const pluginInfo = getPluginInfo(pluginModule)
+                        const info = pluginInfo.info
 
-                        // Fallback for current simple plugins if they don't have metadata
                         return {
-                            id: dir,
-                            name: dir,
-                            description: 'No description',
-                            version: '0.0.0',
-                            _path: dir
+                            id: info?.id || entry.name,
+                            name: info?.name || info?.id || entry.name,
+                            description: info?.description || 'No description',
+                            version: info?.version || '0.0.0',
+                            quality: pluginInfo.quality || [],
+                            supportFunc: pluginInfo.supportFunc || [],
+                            _path: entry.name,
                         }
-                    } catch (e) {
-                        console.error(`[PluginSystem] Failed to load plugin ${dir}:`, e)
+                    } catch (err) {
+                        console.error(`[PluginSystem] Failed to inspect ${entry.name}:`, err)
                         return null
                     }
-                }
-                return null
-            }).filter(p => p !== null)
-        } catch (e) {
-            console.error('[PluginSystem] getAllPlugins failed:', e)
+                })
+                .filter((plugin) => plugin !== null)
+        } catch (err) {
+            console.error('[PluginSystem] Failed to enumerate plugins:', err)
             return []
         }
     }
 
-    static async installPlugin(filePath: string): Promise<{ success: boolean; message: string }> {
+    static async installPlugin(filePath: string): Promise<{
+        success: boolean
+        message: string
+        pluginId?: string
+        updated?: boolean
+    }> {
+        if (path.extname(filePath).toLowerCase() !== '.js') {
+            return { success: false, message: 'Only bundled JavaScript plugin files are supported' }
+        }
+
+        const tempRoot = path.join(app.getPath('userData'), 'temp_plugins')
+        const tempDir = path.join(tempRoot, `install_${Date.now()}_${Math.random().toString(36).slice(2)}`)
+        const tempFile = path.join(tempDir, 'index.js')
+
         try {
-            // Require the file to get plugin info
-            // Notes: We might need to copy it to a temp location if 'require' caches by path strictness,
-            // but for now let's try requiring the source.
-            // If the user selects a file, it's likely outside our project.
-            // Node's require might need valid path.
-
-            // However, we can also just read the file content and do a regex check if we want to be safe, 
-            // but the user's plugin example is a JS object.
-            // Let's copy it to a temporary location in userData to rely on 'require'
-
-            const tempId = `temp_${Date.now()}`
-            const tempDir = path.join(app.getPath('userData'), 'temp_plugins', tempId)
-            const tempFile = path.join(tempDir, 'index.js')
-
-            if (!fs.existsSync(tempDir)) {
-                fs.mkdirSync(tempDir, { recursive: true })
-            }
-
+            fs.mkdirSync(tempDir, { recursive: true })
             fs.copyFileSync(filePath, tempFile)
 
-            // Clear cache just in case
-            delete require.cache[require.resolve(tempFile)]
-            const pluginModule = require(tempFile)
-
-            let id = ''
-            if (pluginModule.pluginInfo?.info?.id) {
-                id = pluginModule.pluginInfo.info.id
-            } else if (pluginModule.info?.id) {
-                // Legacy or direct format support
-                id = pluginModule.info.id
+            const pluginModule = loadPluginModule(tempFile, true)
+            const pluginId = getPluginId(pluginModule)
+            if (!pluginId) {
+                return {
+                    success: false,
+                    message: 'Plugin must export pluginInfo.info.id or info.id',
+                }
             }
 
-            if (!id) {
-                // Cleanup
-                fs.rmSync(tempDir, { recursive: true, force: true })
-                console.error('[PluginSystem] No plugin ID found in file')
-                return { success: false, message: '插件文件中未找到ID' }
-            }
+            const targetDir = path.join(getPluginsPath(), pluginId)
+            const targetFile = path.join(targetDir, 'index.js')
+            const stagedFile = path.join(targetDir, 'index.js.new')
+            const isUpdate = fs.existsSync(targetFile)
 
-            // Install to real location
-            const targetDir = path.join(app.getPath('userData'), 'plugins', id)
-            if (fs.existsSync(targetDir)) {
-                fs.rmSync(tempDir, { recursive: true, force: true })
-                return { success: false, message: `插件 ${id} 已存在` }
-            }
             fs.mkdirSync(targetDir, { recursive: true })
+            fs.copyFileSync(tempFile, stagedFile)
+            clearPluginModuleCache(targetFile)
+            removeFileIfExists(targetFile)
+            fs.renameSync(stagedFile, targetFile)
 
-            fs.copyFileSync(filePath, path.join(targetDir, 'index.js'))
-
-            // Cleanup temp
-            fs.rmSync(tempDir, { recursive: true, force: true })
-
-            return { success: true, message: '安装成功' }
-        } catch (e: any) {
-            console.error('[PluginSystem] Install failed:', e)
-            return { success: false, message: e.message || '安装失败' }
+            return {
+                success: true,
+                message: isUpdate ? `Plugin ${pluginId} updated` : `Plugin ${pluginId} installed`,
+                pluginId,
+                updated: isUpdate,
+            }
+        } catch (err: any) {
+            console.error('[PluginSystem] Install failed:', err)
+            return { success: false, message: err?.message || 'Plugin installation failed' }
+        } finally {
+            clearPluginModuleCache(tempFile)
+            try {
+                fs.rmSync(tempDir, { recursive: true, force: true })
+            } catch {
+                // Best-effort cleanup.
+            }
         }
     }
 
     static uninstallPlugin(id: string): boolean {
+        if (!/^[a-z0-9._-]+$/i.test(id)) return false
+
+        const pluginPath = getPluginEntry(id)
+        const pluginDir = path.dirname(pluginPath)
         try {
-            const pluginPath = path.join(app.getPath('userData'), 'plugins', id)
-            if (fs.existsSync(pluginPath)) {
-                fs.rmSync(pluginPath, { recursive: true, force: true })
-                return true
-            }
-            return false
-        } catch (e) {
-            console.error(`[PluginSystem] Failed to uninstall plugin ${id}:`, e)
+            clearPluginModuleCache(pluginPath)
+            if (!fs.existsSync(pluginDir)) return false
+            fs.rmSync(pluginDir, { recursive: true, force: true })
+            return true
+        } catch (err) {
+            console.error(`[PluginSystem] Failed to uninstall ${id}:`, err)
             return false
         }
+    }
+}
+
+function removeFileIfExists(filePath: string): void {
+    try {
+        if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
+    } catch {
+        // The caller will surface a later copy/rename failure with more context.
     }
 }

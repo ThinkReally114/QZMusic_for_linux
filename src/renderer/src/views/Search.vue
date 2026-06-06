@@ -151,6 +151,7 @@ const songs = ref<Song[]>([]);
 const plugins = ref<any[]>([]);
 const activePlugin = ref<string>(''); // Plugin ID
 const isDropdownOpen = ref(false);
+let removePluginChangeListener: (() => void) | undefined;
 
 const activePluginName = computed(() => {
     const p = plugins.value.find(p => p.id === activePlugin.value);
@@ -224,10 +225,22 @@ const loadPlugins = async () => {
                 // Default to 'wy' if present, else first
                 const wy = plugins.value.find(p => p.id === 'wy');
                 activePlugin.value = wy ? 'wy' : plugins.value[0].id;
+            } else {
+                activePlugin.value = '';
+                songs.value = [];
+                total.value = 0;
             }
         }
     } catch (e) {
         console.error("Failed to load plugins", e);
+    }
+};
+
+const handlePluginsChanged = async () => {
+    const previousPlugin = activePlugin.value;
+    await loadPlugins();
+    if (query.value && activePlugin.value && activePlugin.value === previousPlugin) {
+        await fetchData();
     }
 };
 
@@ -312,6 +325,7 @@ watch(activePlugin, (newVal, oldVal) => {
 
 onMounted(async () => {
     document.addEventListener('click', closeDropdown);
+    removePluginChangeListener = window.electronAPI?.plugin?.onChanged?.(handlePluginsChanged);
     await loadPlugins();
     // After plugins loaded, if we have a query, fetch data
     if (query.value && activePlugin.value) {
@@ -321,6 +335,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
     document.removeEventListener('click', closeDropdown);
+    removePluginChangeListener?.();
 });
 </script>
 

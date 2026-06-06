@@ -20,6 +20,7 @@ export interface IElectronAPI {
         getAll: () => Promise<any[]>;
         uninstall: (pluginId: string) => Promise<boolean>;
         install: () => Promise<{ success: boolean; message: string }>;
+        onChanged: (callback: (change: { action: string; pluginId?: string }) => void) => () => void;
     };
     // Cache Control
     getCacheInfo: () => Promise<{ path: string; size: string; persistCache: boolean }>;

@@ -22,6 +22,10 @@ process.env.VITE_PUBLIC = process.env.ELECTRON_RENDERER_URL ? path.join(process.
 let win: BrowserWindow | null
 let qzplayer: QzpController | null
 
+function notifyPluginsChanged(action: 'installed' | 'updated' | 'uninstalled', pluginId?: string): void {
+    win?.webContents.send('plugin:changed', { action, pluginId })
+}
+
 // === Electron 窗口逻辑 ===
 
 function createWindow() {
@@ -81,17 +85,16 @@ ipcMain.handle('qzplayer-seek', (_, time) => qzplayer?.seek(time))
 // PluginSystem
 ipcMain.handle(
     'plugin:call',
-    async (_evenv, pluginId: string, method: string, args: any[]) => {
+    async (_event, pluginId: string, method: string, args: any[]) => {
         const plugin = new PluginSystem(pluginId)
-
-        if (typeof (plugin as any)[method] !== 'function') {
+        try {
+            return await plugin.call(method, args)
+        } catch (err: any) {
             return {
                 success: false,
-                error: `Method ${method} not found`
+                error: err?.message || `Method ${method} failed`
             }
         }
-
-        return await (plugin as any)[method](...args)
     }
 )
 
@@ -100,22 +103,28 @@ ipcMain.handle('plugin:getAll', () => {
 })
 
 ipcMain.handle('plugin:uninstall', (_, id: string) => {
-    return PluginSystem.uninstallPlugin(id)
+    const success = PluginSystem.uninstallPlugin(id)
+    if (success) notifyPluginsChanged('uninstalled', id)
+    return success
 })
 
 ipcMain.handle('plugin:install', async () => {
-    if (!win) return false
+    if (!win) return { success: false, message: 'Window is unavailable' }
     const { canceled, filePaths } = await dialog.showOpenDialog(win, {
         title: '选择插件文件',
-        filters: [{ name: 'JavaScript Plugins', extensions: ['js'] }],
+        filters: [{ name: 'Bundled JavaScript Plugin', extensions: ['js'] }],
         properties: ['openFile']
     })
 
     if (canceled || filePaths.length === 0) {
-        return false
+        return { success: false, message: 'canceled' }
     }
 
-    return await PluginSystem.installPlugin(filePaths[0])
+    const result = await PluginSystem.installPlugin(filePaths[0])
+    if (result.success) {
+        notifyPluginsChanged(result.updated ? 'updated' : 'installed', result.pluginId)
+    }
+    return result
 })
 
 // Cache IPC Handlers

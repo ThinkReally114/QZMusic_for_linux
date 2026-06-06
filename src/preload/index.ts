@@ -27,6 +27,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
         getAll: () => ipcRenderer.invoke('plugin:getAll'),
         uninstall: (id: string) => ipcRenderer.invoke('plugin:uninstall', id),
         install: () => ipcRenderer.invoke('plugin:install'),
+        onChanged: (callback: (change: { action: string; pluginId?: string }) => void) => {
+            const listener = (
+                _event: Electron.IpcRendererEvent,
+                change: { action: string; pluginId?: string },
+            ) => callback(change)
+            ipcRenderer.on('plugin:changed', listener)
+            return () => ipcRenderer.removeListener('plugin:changed', listener)
+        },
     },
 
     // Cache Control
