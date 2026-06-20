@@ -15,6 +15,7 @@ export interface Song {
     artist: string;
     duration: string;
     source: string;
+    lyric?: string;
     quality?: string; // default 'auto'
     albumId?: string | null;
     albumName?: string | null;

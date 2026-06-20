@@ -15,7 +15,7 @@
 <script setup lang="ts">
 import { ref, onUnmounted } from 'vue';
 
-const props = defineProps<{
+defineProps<{
   className?: string;
 }>();
 

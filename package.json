@@ -25,11 +25,13 @@
     "@pixi/filter-bulge-pinch": "^5.1.1",
     "@pixi/filter-color-matrix": "^7.4.3",
     "@pixi/sprite": "^7.4.3",
+    "@types/qrcode": "^1.5.6",
     "@vitejs/plugin-vue-jsx": "^5.1.5",
     "element-plus": "^2.13.7",
     "jss": "^10.10.0",
     "jss-preset-default": "^10.10.0",
     "pinia": "^3.0.4",
+    "qrcode": "^1.5.4",
     "url": "^0.11.4",
     "vite-plugin-wasm": "^3.6.0",
     "vue": "^3.5.33",
@@ -72,6 +74,10 @@
       {
         "from": "core/libfftw3f-3.dll",
         "to": "core/libfftw3f-3.dll"
+      },
+      {
+        "from": "native/taglib_reader/build/taglib_reader_cli.exe",
+        "to": "native/taglib_reader_cli.exe"
       }
     ]
   }

@@ -16,7 +16,7 @@
         <ControlThumb @click="toggleFullScreen" />
       </div>
       <Cover
-        class="cover"
+        :class="['cover', { 'shared-cover': isPlayerFullScreen }]"
         :cover-url="playerStore.currentSong?.picUrl"
         :music-paused="!isPlaying"
         :cover-video-paused="!isPlaying"
@@ -101,31 +101,7 @@
               <span class="playlist-title">播放队列</span>
               <span class="playlist-count">{{ playerStore.playlist.length }} 首</span>
             </div>
-            <div class="playlist-scroll">
-              <div
-                v-for="(song, index) in playerStore.playlist"
-                :key="song.id"
-                class="playlist-item"
-                :class="{ active: index === playerStore.playlist.findIndex(s => s.id === playerStore.currentSong?.id) }"
-                @click="playFromPlaylist(index)"
-              >
-                <div class="item-index">
-                  <span v-if="index === playerStore.playlist.findIndex(s => s.id === playerStore.currentSong?.id)" class="playing-indicator">
-                    <span class="bar"></span>
-                    <span class="bar"></span>
-                    <span class="bar"></span>
-                  </span>
-                  <span v-else>{{ index + 1 }}</span>
-                </div>
-                <img v-if="song.picUrl" :src="song.picUrl" class="item-cover" />
-                <div v-else class="item-cover item-cover-placeholder"></div>
-                <div class="item-info">
-                  <div class="item-name">{{ song.name }}</div>
-                  <div class="item-artist">{{ song.artist }}</div>
-                </div>
-                <div class="item-duration">{{ song.duration }}</div>
-              </div>
-            </div>
+            <PlayerQueueList class="playlist-scroll" variant="fullscreen" />
           </div>
         </Transition>
         <!-- Lyric Player -->
@@ -181,6 +157,7 @@ import MusicInfo from './player/MusicInfo.vue';
 import MediaButton from './player/MediaButton.vue';
 import VolumeControl from './player/VolumeControl.vue';
 import ToggleIconButton from './player/ToggleIconButton.vue';
+import PlayerQueueList from './player/PlayerQueueList.vue';
 
 // Icons
 import IconRewind from '@assets/icon_rewind.svg';
@@ -357,13 +334,6 @@ const togglePlaylistPanel = () => {
   showPlaylistPanel.value = opening;
 };
 
-const playFromPlaylist = (index: number) => {
-  const song = playerStore.playlist[index];
-  if (song) {
-    playerStore.playSong(song);
-  }
-};
-
 // watch(()=>playerStore.currentTime,(t)=>{
 //   console.log(toRaw(t))
 // })
@@ -373,18 +343,26 @@ const playFromPlaylist = (index: number) => {
 .fullscreen-player {
   --height: calc(100vh);
   position: fixed;
-  top: var(--height);
+  top: 0;
   left: 0;
   width: 100%;
   height: var(--height);
   z-index: 9999;
-  transition: top 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+  opacity: 0;
+  transform: translateY(100%) scale(0.985);
+  transform-origin: bottom center;
+  transition:
+    transform 0.46s cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 0.28s ease;
   background: black; /* Default background if image fails */
   overflow: hidden;
+  pointer-events: none;
 }
 
 .fullscreen-player.active {
-  top: 0;
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
 }
 
 .background-container {
@@ -507,6 +485,10 @@ const playFromPlaylist = (index: number) => {
   height: var(--horizontal-layout-max-width);
 
   position: relative;
+}
+
+.cover.shared-cover {
+  view-transition-name: now-playing-cover;
 }
 
 .controls {

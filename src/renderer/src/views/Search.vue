@@ -66,24 +66,14 @@
         </div>
         
         <div class="song-list">
-          <div 
-            class="song-item" 
-            v-for="(song, i) in songs" 
-            :key="song.id" 
-            @click="handlePlaySong(i)"
-          >
-            <div class="song-index">{{ (currentPage - 1) * limit + i + 1 }}</div>
-            <div class="song-cover">
-               <img v-if="song.picUrl" :src="song.picUrl" loading="lazy" />
-               <div v-else class="cover-placeholder"></div>
-            </div>
-            <div class="song-info">
-              <h4 class="song-title" v-html="highlight(song.name)"></h4>
-              <p class="song-artist" v-html="highlight(song.artist)"></p>
-            </div>
-            <div class="song-album" v-html="highlight(song.albumName || '-')"></div>
-            <div class="song-duration">{{ song.duration }}</div>
-          </div>
+          <SongTile
+            v-for="(song, i) in songs"
+            :key="`${song.source}:${song.id}:${i}`"
+            :song="song"
+            :display-index="(currentPage - 1) * limit + i + 1"
+            :highlight="highlight"
+            @play="handlePlaySong(i)"
+          />
         </div>
 
         <!-- Pagination -->
@@ -130,6 +120,7 @@ import { useRoute } from 'vue-router';
 import { Icon } from '@iconify/vue';
 import { usePlayerStore } from '../stores/player';
 import { transformSearchSong } from '../utils/songUtils';
+import SongTile from '../components/SongTile.vue';
 import type { Song } from '../types/song';
 
 const route = useRoute();
@@ -345,11 +336,12 @@ onBeforeUnmount(() => {
   width: 100%;
   height: 100%;
   overflow-y: auto;
+  scroll-padding-bottom: 148px;
 }
 
 .content-wrapper {
   box-sizing: border-box;
-  padding: 20px 30px; /* Reduced vertical padding, kept horizontal for spacing but flexible */
+  padding: 20px 30px 148px; /* Reduced vertical padding, kept horizontal for spacing but flexible */
   width: 100%;
   /* Removed max-width to allow full width usage as requested */
   /* margin: 0 auto; */ 
@@ -383,7 +375,7 @@ onBeforeUnmount(() => {
     transform: translateY(-50%);
     width: 4px;
     height: 70%; 
-    background-color: var(--color-accent);
+    background: var(--color-accent-gradient);
     border-radius: 4px;
 }
 
@@ -561,7 +553,7 @@ onBeforeUnmount(() => {
     width: 12px;
     height: 12px;
     border-radius: 50%;
-    background: var(--color-accent);
+    background: var(--color-accent-gradient);
     cursor: pointer;
     box-shadow: 0 0 4px rgba(0,0,0,0.2);
 }
@@ -571,7 +563,7 @@ onBeforeUnmount(() => {
     top: 0;
     left: 0;
     height: 100%;
-    background: var(--color-accent);
+    background: var(--color-accent-gradient);
     border-radius: 2px;
     pointer-events: none;
     z-index: 1;
@@ -797,7 +789,7 @@ onBeforeUnmount(() => {
 }
 
 .pagination-btn.active {
-    background: var(--color-accent);
+    background: var(--color-accent-gradient);
     color: #fff; /* Ensure readable text on accent */
     border-color: var(--color-accent);
     font-weight: bold;
@@ -851,7 +843,7 @@ onBeforeUnmount(() => {
 .retry-btn {
     margin-top: 8px;
     padding: 8px 24px;
-    background: var(--color-accent);
+    background: var(--color-accent-gradient);
     color: white; /* Ensure text is readable on accent color */
     border-radius: var(--radius-full);
     font-size: 14px;

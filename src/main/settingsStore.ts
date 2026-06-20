@@ -9,13 +9,18 @@ export interface AppSettings {
     // Appearance
     theme: 'dark' | 'light';
     accentColor: string;
+    // Playlist
+    playlistPagingMode: 'infinite' | 'pagination';
+    openPlayerOnSongClick: boolean;
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
     persistCache: true,
     cachePath: path.join(app.getPath('userData'), 'cache'), // Default
     theme: 'light',
-    accentColor: '#ec4141', // Default red
+    accentColor: '#8289d3',
+    playlistPagingMode: 'infinite',
+    openPlayerOnSongClick: false,
 };
 
 let settingsCache: AppSettings | null = null;

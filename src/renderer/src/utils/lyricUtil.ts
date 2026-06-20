@@ -15,6 +15,7 @@ type LyricData = {
     yrc?: string
     qrc?: string
     lrc?: string
+    plain?: string
     lyric?: string
     translate?: string
     translatedLyric?: string
@@ -136,7 +137,7 @@ function normalizeLyricData(input: unknown): LyricData | null {
         }
 
         const format = detectLyricFormat(raw)
-        return format ? { [format]: raw } : null
+        return format ? { [format]: raw } : { plain: raw }
     }
 
     if (!input || typeof input !== 'object') return null
@@ -160,6 +161,10 @@ function normalizeLyricData(input: unknown): LyricData | null {
                 [format]: data.lyric,
             }
         }
+        return {
+            ...data,
+            plain: data.lyric,
+        }
     }
 
     return data
@@ -171,7 +176,31 @@ function parsePrimaryLyric(data: LyricData): LyricLine[] {
     if (typeof data.yrc === 'string') return parseYrc(data.yrc)
     if (typeof data.qrc === 'string') return parseQrc(data.qrc)
     if (typeof data.lrc === 'string') return parseLrc(data.lrc)
+    if (typeof data.plain === 'string') return parsePlainLyric(data.plain)
     return []
+}
+
+function parsePlainLyric(raw: string): LyricLine[] {
+    return raw
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((text, index) => {
+            const startTime = index * defaultLineDuration
+            return {
+                startTime,
+                endTime: startTime + defaultLineDuration,
+                words: [{
+                    word: text,
+                    startTime,
+                    endTime: startTime + defaultLineDuration,
+                }],
+                translatedLyric: '',
+                romanLyric: '',
+                isBG: false,
+                isDuet: false,
+            }
+        })
 }
 
 function lineText(line: LyricLine): string {

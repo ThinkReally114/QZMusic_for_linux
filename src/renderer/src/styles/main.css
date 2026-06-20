@@ -53,7 +53,7 @@ input[type='radio'] {
 
 input[type='radio']:checked {
     border-color: var(--color-accent);
-    background-color: var(--color-accent);
+    background: var(--color-accent-gradient);
 }
 
 input[type='radio']:checked::after {
@@ -86,4 +86,58 @@ input[type='radio']:checked::after {
 
 ::-webkit-scrollbar-thumb:hover {
     background: var(--color-text-muted);
+}
+
+.el-overlay {
+    background-color: rgba(12, 12, 12, 0.18) !important;
+    backdrop-filter: blur(14px) saturate(1.08);
+}
+
+.el-message-box,
+.el-dialog,
+.el-popover.el-popper {
+    border: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent) !important;
+    border-radius: 22px !important;
+    background: color-mix(in srgb, var(--color-bg-primary) 84%, transparent) !important;
+    box-shadow: var(--shadow-elevated) !important;
+    color: var(--color-text-primary) !important;
+    backdrop-filter: blur(24px) saturate(1.12);
+}
+
+.el-message-box {
+    padding: 8px !important;
+}
+
+.el-message-box__title,
+.el-dialog__title {
+    color: var(--color-text-primary) !important;
+    font-size: 16px !important;
+    font-weight: 700 !important;
+}
+
+.el-message-box__message,
+.el-dialog__body {
+    color: var(--color-text-secondary) !important;
+}
+
+.el-message {
+    border: 1px solid color-mix(in srgb, var(--color-border) 68%, transparent) !important;
+    border-radius: 999px !important;
+    background: color-mix(in srgb, var(--color-bg-primary) 88%, transparent) !important;
+    box-shadow: var(--shadow-lg) !important;
+    backdrop-filter: blur(18px) saturate(1.08);
+}
+
+.el-message .el-message__content {
+    color: var(--color-text-primary) !important;
+    font-weight: 600;
+}
+
+.el-button {
+    border-radius: 999px !important;
+}
+
+.el-button--primary {
+    border-color: transparent !important;
+    background: var(--color-accent-gradient) !important;
 }

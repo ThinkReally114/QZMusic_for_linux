@@ -7,6 +7,53 @@ import { QzpController } from './qzpController'
 import { startProxyServer, cleanupCache, getCacheDir, getCacheSize, setPersistCache, clearCacheNow, refreshCacheDir } from './proxyServer'
 import { PluginSystem } from './pluginSystem'
 import { loadSettings, saveSettings, getSetting, AppSettings } from './settingsStore'
+import {
+    acceptAuthCallback,
+    cancelQrLoginSession,
+    clearAuthState,
+    createQrLoginSession,
+    getLibraryPrivacy,
+    getListenTogetherWsUrl,
+    getListenRank,
+    getValidAccessToken,
+    getListenTime,
+    getListenTimeRange,
+    getUserProfile,
+    getUserPublicFavSongs,
+    getUserPublicPlaylists,
+    loadAuthState,
+    openLoginPage,
+    pollQrLoginSession,
+    refreshAuthState,
+    sendPcHeartbeat,
+    setLibraryPrivacy,
+    updateCurrentUserProfile,
+    uploadImage,
+    type AuthCallbackPayload,
+} from './authStore'
+import {
+    addSong,
+    copyPlaylistToLocal,
+    convertPlaylistScope,
+    createPlaylist,
+    deletePlaylist as deleteStoredPlaylist,
+    exportPlaylist,
+    getPlaylist,
+    importPlaylist,
+    listCloudPlaylists,
+    listLocalPlaylists,
+    listPublicPlaylists,
+    removeSong,
+    updatePlaylist,
+    type PlaylistScope,
+} from './playlistStore'
+import {
+    clearMissingLocalSongs,
+    getLocalMusicLibrary,
+    removeLocalSong,
+    scanLocalMusic,
+    setLocalMusicRoots,
+} from './localMusicStore'
 
 // @ts-ignore
 const require = createRequire(import.meta.url)
@@ -25,6 +72,65 @@ let qzplayer: QzpController | null
 function notifyPluginsChanged(action: 'installed' | 'updated' | 'uninstalled', pluginId?: string): void {
     win?.webContents.send('plugin:changed', { action, pluginId })
 }
+
+const gotSingleInstanceLock = app.requestSingleInstanceLock()
+if (!gotSingleInstanceLock) {
+    app.quit()
+}
+
+function decodeAuthCallback(url: string): AuthCallbackPayload | null {
+    try {
+        const parsed = new URL(url)
+        if (parsed.protocol !== 'qzmusic:' || parsed.hostname !== 'auth_result') return null
+        const hexData = parsed.searchParams.get('data')
+        if (!hexData) return null
+        const jsonText = Buffer.from(hexData, 'hex').toString('utf8')
+        return JSON.parse(jsonText)
+    } catch (err) {
+        console.error('[Auth] Failed to decode callback:', err)
+        return null
+    }
+}
+
+function handleAuthCallback(url: string): void {
+    const payload = decodeAuthCallback(url)
+    if (!payload) return
+
+    try {
+        const state = acceptAuthCallback(payload)
+        win?.webContents.send('auth:changed', { status: 'success', state })
+    } catch (err: any) {
+        win?.webContents.send('auth:changed', {
+            status: 'error',
+            message: err?.message || 'Login failed',
+            state: loadAuthState(),
+        })
+    }
+    if (win?.isMinimized()) win.restore()
+    win?.focus()
+}
+
+if (process.defaultApp) {
+    if (process.argv.length >= 2) {
+        app.setAsDefaultProtocolClient('qzmusic', process.execPath, [path.resolve(process.argv[1])])
+    }
+} else {
+    app.setAsDefaultProtocolClient('qzmusic')
+}
+
+app.on('second-instance', (_event, argv) => {
+    const callbackUrl = argv.find((arg) => arg.startsWith('qzmusic://auth_result'))
+    if (callbackUrl) handleAuthCallback(callbackUrl)
+    if (win) {
+        if (win.isMinimized()) win.restore()
+        win.focus()
+    }
+})
+
+app.on('open-url', (event, url) => {
+    event.preventDefault()
+    handleAuthCallback(url)
+})
 
 // === Electron 窗口逻辑 ===
 
@@ -65,6 +171,16 @@ ipcMain.on('window-minimize', (event) => BrowserWindow.fromWebContents(event.sen
 ipcMain.on('window-maximize', () => win?.isMaximized() ? win.unmaximize() : win?.maximize())
 ipcMain.on('window-close', () => win?.close())
 ipcMain.handle('window-is-maximized', () => win?.isMaximized() || false)
+ipcMain.handle('window:setProgressBar', (_event, progress: number, mode: 'normal' | 'paused' = 'normal') => {
+    if (!win) return false
+    const value = Number(progress)
+    if (!Number.isFinite(value) || value < 0) {
+        win.setProgressBar(-1)
+        return true
+    }
+    win.setProgressBar(Math.max(0, Math.min(1, value)), { mode })
+    return true
+})
 
 // --- qzplayer IPC Handlers ---
 ipcMain.handle('qzplayer-command', async (_, command: any[]) => {
@@ -102,6 +218,16 @@ ipcMain.handle('plugin:getAll', () => {
     return PluginSystem.getAllPlugins()
 })
 
+ipcMain.handle('plugin:getPlaylist', async (_event, pluginId: string, id: string, page = 1, limit = 100) => {
+    const plugin = new PluginSystem(pluginId)
+    return plugin.getPlaylist(id, page, limit)
+})
+
+ipcMain.handle('plugin:getAlbum', async (_event, pluginId: string, id: string, page = 1, limit = 100) => {
+    const plugin = new PluginSystem(pluginId)
+    return plugin.getAlbum(id, page, limit)
+})
+
 ipcMain.handle('plugin:uninstall', (_, id: string) => {
     const success = PluginSystem.uninstallPlugin(id)
     if (success) notifyPluginsChanged('uninstalled', id)
@@ -125,6 +251,159 @@ ipcMain.handle('plugin:install', async () => {
         notifyPluginsChanged(result.updated ? 'updated' : 'installed', result.pluginId)
     }
     return result
+})
+
+// Auth IPC Handlers
+ipcMain.handle('auth:getState', () => loadAuthState())
+ipcMain.handle('auth:getAccessToken', () => getValidAccessToken())
+ipcMain.handle('listenTogether:getWsUrl', async (_event, params: Record<string, string>) => {
+    const token = await getValidAccessToken()
+    return getListenTogetherWsUrl({ token, ...params })
+})
+ipcMain.handle('auth:login', (_event, forcePrompt = false) => openLoginPage(Boolean(forcePrompt)))
+ipcMain.handle('auth:qr:create', () => createQrLoginSession())
+ipcMain.handle('auth:qr:poll', async (_event, sessionId: string, pollToken: string) => {
+    const result = await pollQrLoginSession(String(sessionId), String(pollToken))
+    if (result.status === 'success' && result.state) {
+        win?.webContents.send('auth:changed', { status: 'success', state: result.state })
+    }
+    return result
+})
+ipcMain.handle('auth:qr:cancel', (_event, sessionId: string, pollToken: string) => {
+    return cancelQrLoginSession(String(sessionId), String(pollToken))
+})
+ipcMain.handle('auth:refresh', () => refreshAuthState())
+ipcMain.handle('auth:logout', () => {
+    const state = clearAuthState()
+    win?.webContents.send('auth:changed', { status: 'logout', state })
+    return state
+})
+
+ipcMain.handle('privacy:getLibrary', () => getLibraryPrivacy())
+ipcMain.handle('privacy:setLibrary', (_event, payload: { allow_public_library?: boolean; allow_public_profile?: boolean }) => {
+    return setLibraryPrivacy({
+        allow_public_library: typeof payload?.allow_public_library === 'boolean' ? payload.allow_public_library : undefined,
+        allow_public_profile: typeof payload?.allow_public_profile === 'boolean' ? payload.allow_public_profile : undefined,
+    })
+})
+
+ipcMain.handle('user:getProfile', (_event, userId: string) => {
+    return getUserProfile(String(userId || ''))
+})
+ipcMain.handle('user:getPlaylists', (_event, userId: string) => {
+    return getUserPublicPlaylists(String(userId || ''))
+})
+ipcMain.handle('user:getFavSongs', (_event, userId: string) => {
+    return getUserPublicFavSongs(String(userId || ''))
+})
+ipcMain.handle('user:updateProfile', (_event, payload: any) => {
+    return updateCurrentUserProfile(payload || {})
+})
+
+ipcMain.handle('heartbeat:pc', (_event, duration: number, timestamp?: number) => {
+    return sendPcHeartbeat(duration, timestamp)
+})
+
+ipcMain.handle('stats:listenTime', (_event, detail = 1, userId?: string) => {
+    return getListenTime(Number(detail) || 0, userId)
+})
+
+ipcMain.handle('stats:listenRange', (_event, start: string, end: string, userId?: string) => {
+    return getListenTimeRange(String(start), String(end), userId)
+})
+
+ipcMain.handle('stats:listenRank', (_event, period: 'week' | 'month' | 'year' = 'week', limit = 200) => {
+    return getListenRank(period, Number(limit) || 200)
+})
+
+// Playlist IPC Handlers
+ipcMain.handle('playlist:list', async () => {
+    const local = listLocalPlaylists()
+    const cloud = await listCloudPlaylists().catch((err) => {
+        console.error('[Playlist] Failed to load cloud playlists:', err)
+        return []
+    })
+    return { local, cloud, items: [...local, ...cloud] }
+})
+
+ipcMain.handle('playlist:publicList', (_event, search = '', sort = 'visit', page = 1, limit = 50) => {
+    return listPublicPlaylists(String(search || ''), String(sort || 'visit'), Number(page) || 1, Number(limit) || 50)
+})
+
+ipcMain.handle('playlist:get', (_event, scope: PlaylistScope, id: string) => {
+    return getPlaylist(scope, id)
+})
+
+ipcMain.handle('playlist:create', (_event, scope: PlaylistScope, data: { name: string; desc?: string; is_public?: boolean }) => {
+    return createPlaylist(scope, data)
+})
+
+ipcMain.handle('playlist:update', (_event, scope: PlaylistScope, id: string, info: any) => {
+    return updatePlaylist(scope, id, info)
+})
+
+ipcMain.handle('playlist:delete', (_event, scope: PlaylistScope, id: string) => {
+    return deleteStoredPlaylist(scope, id)
+})
+
+ipcMain.handle('playlist:addSong', (_event, scope: PlaylistScope, id: string, song: any, index = -1) => {
+    return addSong(scope, id, song, index)
+})
+
+ipcMain.handle('playlist:removeSong', (_event, scope: PlaylistScope, id: string, index: number) => {
+    return removeSong(scope, id, index)
+})
+
+ipcMain.handle('playlist:export', async (_event, scope: PlaylistScope, id: string) => {
+    if (!win) return { success: false, canceled: true }
+    const playlist = await getPlaylist(scope, id)
+    const safeName = (playlist.info.name || 'playlist').replace(/[<>:"/\\|?*\x00-\x1F]/g, '_')
+    const { canceled, filePath } = await dialog.showSaveDialog(win, {
+        title: '导出歌单',
+        defaultPath: `${safeName}.qzplaylist.json`,
+        filters: [
+            { name: 'QZMusic Playlist', extensions: ['json'] },
+            { name: 'JSON', extensions: ['json'] },
+        ],
+    })
+    if (canceled || !filePath) return { success: false, canceled: true }
+    return exportPlaylist(scope, id, filePath)
+})
+
+ipcMain.handle('playlist:import', async () => {
+    if (!win) return { success: false, canceled: true }
+    const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+        title: '导入歌单',
+        properties: ['openFile'],
+        filters: [
+            { name: 'QZMusic Playlist', extensions: ['json'] },
+            { name: 'JSON', extensions: ['json'] },
+        ],
+    })
+    if (canceled || filePaths.length === 0) return { success: false, canceled: true }
+    const playlist = importPlaylist(filePaths[0])
+    return { success: true, playlist }
+})
+
+ipcMain.handle('playlist:convertScope', (_event, scope: PlaylistScope, id: string, targetScope: PlaylistScope) => {
+    return convertPlaylistScope(scope, id, targetScope)
+})
+
+ipcMain.handle('playlist:copyToLocal', (_event, scope: PlaylistScope, id: string) => {
+    return copyPlaylistToLocal(scope, id)
+})
+
+ipcMain.handle('image:selectAndUpload', async () => {
+    if (!win) return { success: false, canceled: true }
+    const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+        title: '选择图片',
+        properties: ['openFile'],
+        filters: [
+            { name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp', 'gif'] },
+        ],
+    })
+    if (canceled || filePaths.length === 0) return { success: false, canceled: true }
+    return uploadImage(filePaths[0])
 })
 
 // Cache IPC Handlers
@@ -163,6 +442,36 @@ ipcMain.handle('dialog:openDirectory', async () => {
     })
     if (canceled || filePaths.length === 0) return null
     return filePaths[0]
+})
+
+ipcMain.handle('dialog:openDirectories', async () => {
+    if (!win) return []
+    const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+        title: '选择音乐文件夹',
+        properties: ['openDirectory', 'multiSelections', 'createDirectory']
+    })
+    if (canceled || filePaths.length === 0) return []
+    return filePaths
+})
+
+ipcMain.handle('localMusic:getLibrary', () => {
+    return getLocalMusicLibrary()
+})
+
+ipcMain.handle('localMusic:scan', async (_event, roots: string[]) => {
+    return scanLocalMusic(Array.isArray(roots) ? roots : [])
+})
+
+ipcMain.handle('localMusic:setRoots', (_event, roots: string[]) => {
+    return setLocalMusicRoots(Array.isArray(roots) ? roots : [])
+})
+
+ipcMain.handle('localMusic:remove', (_event, id: string) => {
+    return removeLocalSong(id)
+})
+
+ipcMain.handle('localMusic:clearMissing', () => {
+    return clearMissingLocalSongs()
 })
 
 ipcMain.handle('cache:changeLocation', async (_, newPath: string) => {
@@ -298,6 +607,9 @@ app.whenReady().then(() => {
     // ----------------------------------------
     Menu.setApplicationMenu(null)
     createWindow()
+
+    const callbackUrl = process.argv.find((arg) => arg.startsWith('qzmusic://auth_result'))
+    if (callbackUrl) handleAuthCallback(callbackUrl)
 
     // Start Proxy Server
     startProxyServer()

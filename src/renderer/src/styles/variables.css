@@ -3,7 +3,16 @@
   --theme-transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
 
   /* Dynamic accent color (set via JS) */
-  --color-accent: #ec4141;
+  --color-accent: #8289d3;
+  --color-accent-gradient: #8289d3;
+  --color-atmosphere-gradient:
+    linear-gradient(180deg,
+      rgba(176, 186, 235, 0.36) 0%,
+      rgba(177, 191, 233, 0.31) 18%,
+      rgba(179, 201, 223, 0.25) 38%,
+      rgba(193, 192, 211, 0.18) 58%,
+      rgba(223, 172, 185, 0.11) 78%,
+      transparent 100%);
   --color-accent-hover: color-mix(in srgb, var(--color-accent) 85%, white);
   --color-accent-soft: color-mix(in srgb, var(--color-accent) 10%, transparent);
 
@@ -24,8 +33,8 @@
   --radius-2xl: 32px;
   --radius-full: 9999px;
 
-  --sidebar-width: 240px;
-  --topbar-height: 64px;
+  --sidebar-width: 284px;
+  --topbar-height: 72px;
 
   /* Transitions */
   --transition-fast: 0.15s ease;

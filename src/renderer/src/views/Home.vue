@@ -1,426 +1,834 @@
 <template>
-  <div class="view-container home-view">
+  <div class="home-view">
     <div class="content-wrapper">
-      <!-- 每日推荐横幅 -->
-      <div class="daily-recommend">
-        <div class="banner-content">
-          <div class="date-badge">
-            <div class="day">{{ currentDate.day }}</div>
-            <div class="month">{{ currentDate.month }}月</div>
-          </div>
-          <div class="banner-info">
-            <h2 class="banner-title">每日推荐</h2>
-            <p class="banner-desc">根据你的音乐口味，为你精选30首歌曲</p>
-            <button class="play-btn">
-              <Icon icon="lucide:play" class="play-icon" />
-              立即播放
+      <section class="home-hero">
+        <div class="hero-copy">
+          <div class="eyebrow">{{ greeting }}</div>
+          <h1>{{ authStore.isLoggedIn ? authStore.displayName : '准备好开始听歌了吗' }}</h1>
+          <p>{{ authStore.isLoggedIn ? '云端功能已完整接入，准备好开始听歌了吗^_^' : '登录后可以同步云端歌单，也可以继续使用本地歌单。' }}</p>
+          <div class="hero-actions">
+            <button class="primary-btn" @click="continuePlaying" :disabled="!playerStore.currentSong">
+              <Icon icon="lucide:play" />
+              继续播放
+            </button>
+            <button v-if="!authStore.isLoggedIn" class="soft-btn" @click="openLoginDialog">
+              <Icon icon="lucide:log-in" />
+              登录账号
             </button>
           </div>
         </div>
-      </div>
-
-      <!-- 推荐歌单 -->
-      <div class="section">
-        <div class="section-header">
-          <h3 class="section-title">推荐歌单</h3>
-          <button class="more-btn">更多</button>
-        </div>
-        <div class="playlist-grid">
-          <div class="playlist-card" v-for="i in 6" :key="i">
-            <div class="playlist-cover">
-              <div class="cover-gradient"></div>
-              <div class="play-overlay">
-                <Icon icon="lucide:play" class="overlay-icon" />
-              </div>
-            </div>
-            <div class="playlist-info">
-              <h4 class="playlist-name">精选歌单 {{ i }}</h4>
-              <p class="playlist-desc">30首歌曲</p>
-            </div>
+        <div class="now-card">
+          <img v-if="playerStore.currentSong?.picUrl" :src="playerStore.currentSong.picUrl" alt="" />
+          <div v-else class="now-placeholder">
+            <Icon icon="lucide:music-2" />
+          </div>
+          <div class="now-copy">
+            <span>正在播放</span>
+            <strong>{{ playerStore.currentSong?.name || '暂无歌曲' }}</strong>
+            <small>{{ playerStore.currentSong?.artist || '从搜索或歌单里选一首' }}</small>
           </div>
         </div>
-      </div>
+      </section>
 
-      <!-- 热门歌手 -->
-      <div class="section">
+      <section class="quick-grid">
+        <button class="quick-tile" @click="router.push('/local')">
+          <Icon icon="lucide:hard-drive" />
+          <span>本地音乐</span>
+          <small>扫描和播放本地文件</small>
+        </button>
+        <button class="quick-tile" @click="router.push('/liked')">
+          <Icon icon="lucide:heart" />
+          <span>我喜欢的</span>
+          <small>收藏夹和常听歌曲</small>
+        </button>
+        <button class="quick-tile" @click="createLocalPlaylist">
+          <Icon icon="lucide:list-plus" />
+          <span>新建本地歌单</span>
+          <small>保存在当前电脑</small>
+        </button>
+        <button class="quick-tile" :disabled="!authStore.isLoggedIn" @click="createCloudPlaylist">
+          <Icon icon="lucide:cloud-plus" />
+          <span>新建云端歌单</span>
+          <small>{{ authStore.isLoggedIn ? '同步到账号' : '登录后可用' }}</small>
+        </button>
+      </section>
+
+      <section class="section">
         <div class="section-header">
-          <h3 class="section-title">热门歌手</h3>
-          <button class="more-btn">更多</button>
+          <div>
+            <h2>今日推荐歌曲</h2>
+            <p>音乐是灵魂的私语，在寂静处与心灵对话</p>
+          </div>
+          <button class="soft-btn compact" @click="playAllRecommended">
+            <Icon icon="lucide:play" />
+            播放全部
+          </button>
         </div>
-        <div class="artist-grid">
-          <div class="artist-card" v-for="i in 8" :key="i">
-            <div class="artist-avatar">
-              <div class="avatar-gradient"></div>
+
+        <div class="song-recommend-grid">
+          <button
+            v-for="(song, index) in recommendedSongs"
+            :key="`${song.source}:${song.id}`"
+            class="song-card"
+            @click="playRecommendedSong(index)"
+          >
+            <span class="thumb-wrap small">
+              <img :src="song.picUrl" alt="" />
+            </span>
+            <div class="song-card-copy">
+              <span>{{ song.name }}</span>
+              <small>{{ song.artist }}</small>
             </div>
-            <p class="artist-name">歌手 {{ i }}</p>
+          </button>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-header">
+          <div>
+            <h2>推荐歌单</h2>
+            <p>让旋律随时启程，收入你的私藏角落，陪你每一个想听的时刻。</p>
           </div>
         </div>
-      </div>
 
-      <!-- 新歌速递 -->
-      <div class="section">
-        <div class="section-header">
-          <h3 class="section-title">新歌速递</h3>
-          <button class="more-btn">播放全部</button>
+        <div v-if="pluginPlaylistsLoading" class="playlist-grid">
+          <div v-for="id in recommendedPlaylistIds" :key="id" class="playlist-card skeleton"></div>
         </div>
-        <div class="song-list">
-          <div class="song-item" v-for="i in 10" :key="i">
-            <div class="song-index">{{ i }}</div>
-            <div class="song-cover">
-              <div class="cover-gradient"></div>
+
+        <div v-else class="playlist-grid">
+          <button
+            v-for="playlist in recommendedPluginPlaylists"
+            :key="`${playlist.source}:${playlist.id}`"
+            class="playlist-card"
+            :class="{ 'is-error': playlist.loadError }"
+            :title="playlist.loadError || playlist.info.name"
+            @click="playlist.loadError ? copyCollectionError(playlist.loadError) : openPluginCollection('playlist', playlist.id, playlist.source)"
+          >
+            <div class="playlist-cover thumb-wrap">
+              <img v-if="playlist.info.img" :src="playlist.info.img" alt="" />
+              <Icon v-else icon="lucide:radio" />
+              <span class="play-float"><Icon icon="lucide:play" /></span>
             </div>
-            <div class="song-info">
-              <h4 class="song-title">歌曲名称 {{ i }}</h4>
-              <p class="song-artist">歌手名称</p>
-            </div>
-            <div class="song-duration">03:45</div>
+            <div class="playlist-name">{{ playlist.info.name }}</div>
+            <div class="playlist-meta">网易云 · {{ playlist.total }} 首</div>
+          </button>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-header">
+          <div>
+            <h2>推荐专辑</h2>
+            <p>Pin</p>
           </div>
         </div>
-      </div>
+
+        <div v-if="pluginAlbumsLoading" class="playlist-grid">
+          <div v-for="id in recommendedAlbumIds" :key="id" class="playlist-card skeleton"></div>
+        </div>
+
+        <div v-else class="playlist-grid">
+          <button
+            v-for="album in recommendedPluginAlbums"
+            :key="`${album.source}:${album.id}`"
+            class="playlist-card"
+            :class="{ 'is-error': album.loadError }"
+            :title="album.loadError || album.info.name"
+            @click="album.loadError ? copyCollectionError(album.loadError) : openPluginCollection('album', album.id, album.source)"
+          >
+            <div class="playlist-cover thumb-wrap">
+              <img v-if="album.info.img" :src="album.info.img" alt="" />
+              <Icon v-else icon="lucide:disc-3" />
+              <span class="play-float"><Icon icon="lucide:play" /></span>
+            </div>
+            <div class="playlist-name">{{ album.info.name }}</div>
+            <div class="playlist-meta">网易云 · {{ album.total }} 首</div>
+          </button>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-header">
+          <div>
+            <h2>最近的歌单</h2>
+            <p>本地和云端歌单会一起显示，点击即可继续整理。</p>
+          </div>
+        </div>
+
+        <div v-if="playlistStore.loading" class="playlist-grid">
+          <div v-for="i in 4" :key="i" class="playlist-card skeleton"></div>
+        </div>
+
+        <div v-else-if="recentPlaylists.length > 0" class="playlist-grid">
+          <button
+            v-for="playlist in recentPlaylists"
+            :key="`${playlist.scope}:${playlist.id}`"
+            class="playlist-card"
+            @click="openPlaylist(playlist.scope, playlist.id)"
+          >
+            <div class="playlist-cover thumb-wrap">
+              <img v-if="playlist.info.img" :src="playlist.info.img" alt="" />
+              <Icon v-else :icon="playlist.scope === 'cloud' ? 'lucide:cloud' : 'lucide:list-music'" />
+              <span class="play-float"><Icon icon="lucide:play" /></span>
+            </div>
+            <div class="playlist-name">{{ playlist.info.name }}</div>
+            <div class="playlist-meta">{{ playlist.scope === 'cloud' ? '云端' : '本地' }} · {{ playlist.total }} 首</div>
+          </button>
+        </div>
+
+        <div v-else class="empty-state">
+          <Icon icon="lucide:list-music" />
+          <span>还没有歌单，先创建一个吧。</span>
+        </div>
+      </section>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
-import { Icon } from '@iconify/vue';
+import { computed, inject, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
+import { Icon } from '@iconify/vue'
+import { ElMessage } from 'element-plus'
+import { useAuthStore } from '../stores/auth'
+import { usePlaylistsStore, type AppPlaylist, type PlaylistScope } from '../stores/playlists'
+import { usePlayerStore } from '../stores/player'
+import { formatDuration } from '../utils/songUtils'
+import type { Song } from '../types/song'
 
-const currentDate = computed(() => {
-  const now = new Date();
-  return {
-    day: now.getDate(),
-    month: now.getMonth() + 1
-  };
-});
+type RecommendedCollection = AppPlaylist & { loadError?: string }
+
+const router = useRouter()
+const authStore = useAuthStore()
+const playlistStore = usePlaylistsStore()
+const playerStore = usePlayerStore()
+const openLoginDialog = inject<() => void>('openLoginDialog', () => authStore.login(false))
+const recommendedPlaylistIds = ['9348791294']
+const recommendedAlbumIds = ['98418475', '360880312']
+const pluginPlaylistsLoading = ref(false)
+const pluginAlbumsLoading = ref(false)
+const recommendedPluginPlaylists = ref<RecommendedCollection[]>([])
+const recommendedPluginAlbums = ref<RecommendedCollection[]>([])
+
+const recommendedSongs: Song[] = [
+  {
+    id: '1979009861',
+    name: '光与影的对白',
+    artist: '洛天依Official',
+    picUrl: 'http://p1.music.126.net/G02hs1vJYJir359bx8wGhg==/109951167851086939.jpg?param=512y512',
+    url: '',
+    duration: formatDuration(248257),
+    source: 'wy',
+    albumId: '151073585',
+    albumName: '依如初见',
+    type: 'Remote',
+    quality: 'auto',
+    types: { jymaster: '165.47MB', hires: '53.85MB', lossless: '31.28MB', exhigh: '9.47MB', standard: '5.68MB', jyeffect: '92.07MB', sky: '28.79MB' },
+  },
+  {
+    id: '2750754678',
+    name: '蝴蝶',
+    artist: '洛天依、桃小薇',
+    picUrl: 'http://p2.music.126.net/385Py82eEhF5D7_8C9QUpA==/109951172078581753.jpg?param=512y512',
+    url: '',
+    duration: formatDuration(219669),
+    source: 'wy',
+    albumId: '286640710',
+    albumName: '蝴蝶',
+    type: 'Remote',
+    quality: 'auto',
+    types: { jymaster: '119.54MB', lossless: '21.14MB', exhigh: '8.38MB', standard: '5.03MB', jyeffect: '71.72MB', sky: '22.18MB' },
+  },
+  {
+    id: '2604527599',
+    name: '蝴蝶',
+    artist: '洛天依Official',
+    picUrl: 'http://p2.music.126.net/EjxfEQw8OjhssWUpJlDTBQ==/109951169745955001.jpg?param=512y512',
+    url: '',
+    duration: formatDuration(216104),
+    source: 'wy',
+    albumId: '241083511',
+    albumName: '再生',
+    type: 'Remote',
+    quality: 'auto',
+    types: { jymaster: '121.05MB', hires: '43.11MB', lossless: '23.47MB', exhigh: '8.25MB', standard: '4.95MB', jyeffect: '73.86MB', sky: '22.66MB' },
+  },
+  {
+    id: '1854231422',
+    name: 'モア！ジャンプ！モア！ (feat. 花里みのり&桐谷遥&桃井愛莉&日野森雫&初音ミク)',
+    artist: 'ナユタン星人、MORE MORE JUMP！、初音ミク',
+    picUrl: 'http://p1.music.126.net/PIZdmUbEUFLbfQy6rDm4sA==/109951166097068861.jpg?param=512y512',
+    url: '',
+    duration: formatDuration(182183),
+    source: 'wy',
+    albumId: '129194941',
+    albumName: 'アイドル新鋭隊/モア！ジャンプ！モア！',
+    type: 'Remote',
+    quality: 'auto',
+    types: { jymaster: '116.17MB', lossless: '37.57MB', exhigh: '6.95MB', standard: '4.17MB', jyeffect: '67.87MB', sky: '21.92MB' },
+  },
+  {
+    id: '28815250',
+    name: '平凡之路',
+    artist: '朴树',
+    picUrl: 'http://p1.music.126.net/W_5XiCv3rGS1-J7EXpHSCQ==/18885211718782327.jpg?param=512y512',
+    url: '',
+    duration: formatDuration(302119),
+    source: 'wy',
+    albumId: '35444067',
+    albumName: '猎户星座',
+    type: 'Remote',
+    quality: 'auto',
+    types: { jymaster: '182.38MB', lossless: '31.83MB', exhigh: '11.53MB', standard: '6.92MB', jyeffect: '106.63MB', sky: '31.58MB' },
+  },
+]
+
+const greeting = computed(() => {
+  const hour = new Date().getHours()
+  if (hour < 11) return '早上好'
+  if (hour < 18) return '下午好'
+  return '晚上好'
+})
+
+const recentPlaylists = computed(() => playlistStore.all.slice(0, 8))
+
+const continuePlaying = () => {
+  if (playerStore.currentSong) playerStore.toggleFullScreen()
+}
+
+const openPlaylist = (scope: PlaylistScope, id: string) => {
+  router.push({ name: 'PlaylistDetail', params: { scope, id } })
+}
+
+const openPluginCollection = (kind: 'playlist' | 'album', id: string, pluginId = 'wy') => {
+  router.push({ name: 'PluginCollection', params: { pluginId, kind, id } })
+}
+
+const getErrorMessage = (error: unknown) => {
+  if (error instanceof Error) return error.message
+  if (typeof error === 'string') return error
+  try {
+    return JSON.stringify(error)
+  } catch {
+    return 'Unknown error'
+  }
+}
+
+const copyCollectionError = async (message?: string) => {
+  if (!message) return
+  await navigator.clipboard.writeText(message)
+  ElMessage.success('错误原因已复制')
+}
+
+const playRecommendedSong = (index: number) => {
+  const song = recommendedSongs[index]
+  if (song) playerStore.playFromList(song, recommendedSongs)
+}
+
+const playAllRecommended = () => {
+  playerStore.setPlaylist(recommendedSongs, 0)
+}
+
+const loadRecommendedPlaylists = async () => {
+  pluginPlaylistsLoading.value = true
+  try {
+    const loaded = await Promise.all(recommendedPlaylistIds.map(async (id) => {
+      try {
+        return await window.electronAPI.plugin.getPlaylist('wy', id, 1, 8)
+      } catch (error) {
+        const loadError = getErrorMessage(error)
+        console.warn(`[Home] Failed to load recommended playlist ${id}:`, error)
+        return {
+          id,
+          scope: 'plugin',
+          source: 'wy',
+          kind: 'playlist',
+          info: {
+            id,
+            name: `网易歌单 ${id}`,
+            desc: '',
+            img: '',
+            author: '',
+            play_count: '',
+          },
+          list: [],
+          total: 0,
+          loadError,
+        } as RecommendedCollection
+      }
+    }))
+    recommendedPluginPlaylists.value = loaded
+  } finally {
+    pluginPlaylistsLoading.value = false
+  }
+}
+
+const loadRecommendedAlbums = async () => {
+  pluginAlbumsLoading.value = true
+  try {
+    const loaded = await Promise.all(recommendedAlbumIds.map(async (id) => {
+      try {
+        return await window.electronAPI.plugin.getAlbum('wy', id, 1, 8)
+      } catch (error) {
+        const loadError = getErrorMessage(error)
+        console.warn(`[Home] Failed to load recommended album ${id}:`, error)
+        return {
+          id,
+          scope: 'plugin',
+          source: 'wy',
+          kind: 'album',
+          info: {
+            id,
+            name: `网易专辑 ${id}`,
+            desc: '',
+            img: '',
+            author: '',
+            play_count: '',
+          },
+          list: [],
+          total: 0,
+          loadError,
+        } as RecommendedCollection
+      }
+    }))
+    recommendedPluginAlbums.value = loaded
+  } finally {
+    pluginAlbumsLoading.value = false
+  }
+}
+
+const createLocalPlaylist = async () => {
+  const playlist = await playlistStore.create('local', { name: '新建歌单' })
+  openPlaylist(playlist.scope, playlist.id)
+}
+
+const createCloudPlaylist = async () => {
+  const playlist = await playlistStore.create('cloud', { name: '新建云端歌单' })
+  openPlaylist(playlist.scope, playlist.id)
+}
+
+onMounted(() => {
+  loadRecommendedPlaylists()
+  loadRecommendedAlbums()
+})
 </script>
 
 <style scoped>
 .home-view {
-  width: 100%;
-  height: 100%;
+  min-height: 100%;
+  background: transparent;
 }
 
 .content-wrapper {
   box-sizing: border-box;
-  padding: 24px;
-  max-width: 1400px;
+  max-width: 1180px;
   margin: 0 auto;
+  padding: 24px 32px 132px;
 }
 
-/* 每日推荐横幅 */
-.daily-recommend {
-  margin-bottom: 40px;
+.home-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 28px;
+  align-items: stretch;
+  padding: 20px 0 34px;
+  border-bottom: 1px solid var(--color-border);
 }
 
-.banner-content {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border-radius: var(--radius-2xl);
-  -electron-corner-smoothing: 65%;
-  padding: 40px;
-  box-sizing: border-box;
+.hero-copy {
   display: flex;
-  align-items: center;
-  gap: 32px;
-  box-shadow: var(--shadow-lg);
-  position: relative;
-  overflow: hidden;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
 }
 
-.banner-content::before {
-  content: '';
-  position: absolute;
-  top: -50%;
-  right: -20%;
-  width: 400px;
-  height: 400px;
-  background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
-  border-radius: 50%;
+.eyebrow {
+  font-size: 13px;
+  font-weight: 750;
+  color: var(--color-accent);
 }
 
-.date-badge {
-  background: rgba(255, 255, 255, 0.15);
-  backdrop-filter: blur(10px);
-  border-radius: var(--radius-xl);
-  padding: 16px 20px;
-  text-align: center;
-  min-width: 100px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+h1 {
+  margin-top: 10px;
+  font-size: 42px;
+  line-height: 1.1;
+  color: var(--color-text-primary);
 }
 
-.day {
-  font-size: 48px;
-  font-weight: 700;
-  color: white;
-  line-height: 1;
+p {
+  margin-top: 12px;
+  color: var(--color-text-secondary);
+  max-width: 620px;
 }
 
-.month {
-  font-size: var(--font-size-lg);
-  color: rgba(255, 255, 255, 0.8);
-  margin-top: 4px;
+.hero-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 24px;
 }
 
-.banner-info {
-  flex: 1;
-}
-
-.banner-title {
-  font-size: var(--font-size-2xl);
-  font-weight: 700;
-  color: white;
-  margin-bottom: 12px;
-}
-
-.banner-desc {
-  color: rgba(255, 255, 255, 0.8);
-  font-size: var(--font-size-base);
-  margin-bottom: 24px;
-}
-
-.play-btn {
+.primary-btn,
+.soft-btn {
+  min-height: 42px;
+  padding: 0 18px;
+  border-radius: var(--radius-full);
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  background: white;
-  color: #667eea;
-  padding: 12px 32px;
-  border-radius: var(--radius-full);
-  border: none;
-  font-size: var(--font-size-base);
-  font-weight: 600;
-  cursor: pointer;
-  transition: all var(--transition-base);
-  box-shadow: var(--shadow-md);
+  transition: background-color 160ms ease, color 160ms ease, opacity 160ms ease;
 }
 
-.play-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-lg);
+.soft-btn.compact {
+  min-height: 36px;
+  padding: 0 14px;
+  font-size: 13px;
 }
 
-.play-icon {
-  width: 18px;
-  height: 18px;
+.primary-btn {
+  background: var(--color-accent-gradient);
+  color: white;
 }
 
-/* 区域样式 */
+.primary-btn:disabled,
+.quick-tile:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.soft-btn {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+}
+
+.soft-btn:hover,
+.quick-tile:hover {
+  background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+  color: var(--color-text-primary);
+}
+
+.now-card {
+  min-height: 220px;
+  border-radius: 28px;
+  background: var(--color-bg-secondary);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.now-card img,
+.now-placeholder {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 22px;
+}
+
+.now-card img {
+  object-fit: cover;
+}
+
+.now-placeholder {
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--color-accent) 7%, transparent);
+  color: var(--color-text-muted);
+}
+
+.now-placeholder svg {
+  width: 48px;
+  height: 48px;
+}
+
+.now-copy {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.now-copy span,
+.now-copy small,
+.playlist-meta,
+.quick-tile small,
+.section-header p {
+  color: var(--color-text-muted);
+}
+
+.now-copy strong,
+.playlist-name,
+.quick-tile span {
+  color: var(--color-text-primary);
+}
+
+.quick-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin: 24px 0 34px;
+}
+
+.quick-tile {
+  min-height: 112px;
+  border-radius: 22px;
+  padding: 18px;
+  background: var(--color-bg-secondary);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  text-align: left;
+  transition: background-color 160ms ease, color 160ms ease, opacity 160ms ease;
+}
+
+.quick-tile svg {
+  width: 22px;
+  height: 22px;
+  color: var(--color-accent);
+}
+
+.quick-tile span {
+  font-weight: 700;
+}
+
 .section {
-  margin-bottom: 48px;
+  padding-top: 2px;
+  margin-top: 34px;
 }
 
 .section-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 24px;
+  align-items: flex-end;
+  margin-bottom: 18px;
 }
 
-.section-title {
-  font-size: var(--font-size-xl);
-  font-weight: 600;
-  color: var(--color-text-primary);
+.section-header h2 {
+  font-size: 22px;
 }
 
-.more-btn {
-  background: transparent;
-  border: 1px solid var(--color-border-light);
-  color: var(--color-text-secondary);
-  padding: 8px 20px;
-  border-radius: var(--radius-full);
-  font-size: var(--font-size-sm);
-  cursor: pointer;
-  transition: all var(--transition-base);
+.section-header p {
+  margin-top: 6px;
+  font-size: 13px;
 }
 
-.more-btn:hover {
-  border-color: var(--color-accent);
-  color: var(--color-accent);
-  background-color: var(--color-accent-soft);
-}
-
-/* 歌单网格 */
 .playlist-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 20px;
-}
-
-.playlist-card {
-  cursor: pointer;
-  transition: transform var(--transition-base);
-}
-
-.playlist-card:hover {
-  transform: translateY(-4px);
-}
-
-.playlist-cover {
-  position: relative;
-  aspect-ratio: 1;
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-  margin-bottom: 12px;
-  background: var(--color-bg-tertiary);
-}
-
-.cover-gradient {
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-}
-
-.play-overlay {
-  position: absolute;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.4);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0;
-  transition: opacity var(--transition-base);
-}
-
-.playlist-card:hover .play-overlay {
-  opacity: 1;
-}
-
-.overlay-icon {
-  width: 48px;
-  height: 48px;
-  color: white;
-  transform: scale(0.8);
-  transition: transform var(--transition-base);
-}
-
-.playlist-card:hover .overlay-icon {
-  transform: scale(1);
-}
-
-.playlist-info {
-  padding: 4px 0;
-}
-
-.playlist-name {
-  font-size: var(--font-size-base);
-  font-weight: 500;
-  color: var(--color-text-primary);
-  margin-bottom: 4px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.playlist-desc {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
-}
-
-/* 歌手网格 */
-.artist-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-  gap: 24px;
-}
-
-.artist-card {
-  text-align: center;
-  cursor: pointer;
-  transition: transform var(--transition-base);
-}
-
-.artist-card:hover {
-  transform: translateY(-4px);
-}
-
-.artist-avatar {
-  width: 120px;
-  height: 120px;
-  border-radius: var(--radius-full);
-  overflow: hidden;
-  margin: 0 auto 12px;
-  background: var(--color-bg-tertiary);
-}
-
-.avatar-gradient {
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-}
-
-.artist-name {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-primary);
-  margin: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* 歌曲列表 */
-.song-list {
-  background-color: var(--color-bg-secondary);
-  border-radius: var(--radius-xl);
-  padding: 8px;
-}
-
-.song-item {
-  box-sizing: border-box;
-  display: flex;
-  align-items: center;
-  padding: 12px 16px;
-  border-radius: var(--radius-lg);
-  transition: all var(--transition-base);
-  cursor: pointer;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 16px;
 }
 
-.song-item:hover {
-  background-color: var(--color-bg-tertiary);
+.song-recommend-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 14px;
 }
 
-.song-index {
-  width: 24px;
-  text-align: center;
-  color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
-  flex-shrink: 0;
+.song-card {
+  min-width: 0;
+  min-height: 74px;
+  padding: 0;
+  border-radius: 18px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  background: transparent;
+  transition: transform 160ms ease;
 }
 
-.song-cover {
-  width: 48px;
-  height: 48px;
-  border-radius: var(--radius-md);
+.song-card:hover {
+  transform: translateY(-1px);
+}
+
+.thumb-wrap {
+  position: relative;
   overflow: hidden;
-  flex-shrink: 0;
-  background: var(--color-bg-tertiary);
+  display: grid;
+  place-items: center;
+  background: var(--color-bg-secondary);
+  color: var(--color-text-muted);
+  isolation: isolate;
 }
 
-.song-info {
-  flex: 1;
+.thumb-wrap::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0);
+  transition: background-color 160ms ease;
+  z-index: 1;
+}
+
+.thumb-wrap.small {
+  width: 54px;
+  height: 54px;
+  border-radius: 14px;
+  flex-shrink: 0;
+}
+
+.thumb-wrap img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 180ms ease;
+}
+
+.play-float {
+  position: absolute;
+  z-index: 2;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: 1.5px solid rgba(255, 255, 255, 0.92);
+  color: white;
+  opacity: 0;
+  transform: scale(0.9);
+  transition: opacity 160ms ease, transform 160ms ease;
+  pointer-events: none;
+}
+
+.play-float svg {
+  width: 18px;
+  height: 18px;
+  transform: translateX(1px);
+}
+
+.playlist-card:hover .thumb-wrap::after {
+  background: rgba(0, 0, 0, 0.36);
+}
+
+.song-card:hover .thumb-wrap img,
+.playlist-card:hover .thumb-wrap img {
+  transform: scale(1.03);
+}
+
+.song-card:hover .play-float,
+.playlist-card:hover .play-float {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.song-card-copy {
   min-width: 0;
 }
 
-.song-title {
-  font-size: var(--font-size-base);
-  font-weight: 500;
+.song-card-copy span,
+.song-card-copy small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.song-card-copy span {
   color: var(--color-text-primary);
-  margin-bottom: 4px;
-  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.song-card-copy small {
+  margin-top: 4px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.playlist-card {
+  padding: 0;
+  text-align: left;
+  border-radius: 18px;
+  transition: transform 160ms ease;
+}
+
+.playlist-card:hover {
+  transform: translateY(-1px);
+}
+
+.playlist-card.is-error {
+  min-height: 206px;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: color-mix(in srgb, var(--color-accent) 6%, var(--color-bg-secondary));
+  color: var(--color-text-muted);
+  cursor: copy;
+}
+
+.playlist-card.is-error::before {
+  content: "加载失败";
+  color: var(--color-text-primary);
+  font-weight: 760;
+}
+
+.playlist-card.is-error::after {
+  content: "悬停查看原因，点击复制";
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+.playlist-card.is-error > * {
+  display: none;
+}
+
+.playlist-cover {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 18px;
+}
+
+.playlist-cover > svg {
+  width: 36px;
+  height: 36px;
+}
+
+.playlist-name {
+  margin-top: 10px;
+  font-size: 14px;
+  font-weight: 700;
   overflow: hidden;
+  white-space: nowrap;
   text-overflow: ellipsis;
 }
 
-.song-artist {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.playlist-meta {
+  margin-top: 3px;
+  font-size: 12px;
 }
 
-.song-duration {
-  font-size: var(--font-size-sm);
+.skeleton {
+  height: 190px;
+  background: linear-gradient(90deg, var(--color-bg-secondary), var(--color-bg-tertiary), var(--color-bg-secondary));
+  background-size: 220% 100%;
+  animation: shimmer 1.2s ease infinite;
+}
+
+.empty-state {
+  min-height: 180px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
   color: var(--color-text-muted);
-  flex-shrink: 0;
+}
+
+@keyframes shimmer {
+  to { background-position: -220% 0; }
+}
+
+@media (max-width: 980px) {
+  .home-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .now-card {
+    max-width: 360px;
+  }
+
+  .quick-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 </style>

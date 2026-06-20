@@ -30,10 +30,15 @@ type PluginModule = Record<string, any> & {
     info?: PluginInfo['info']
     getUrl?: (...args: any[]) => any
     getLyric?: (...args: any[]) => any
+    getPlaylist?: (...args: any[]) => any
+    getPlayList?: (...args: any[]) => any
+    getAlbum?: (...args: any[]) => any
     musicSearch?: {
         search?: (...args: any[]) => any
     } | ((...args: any[]) => any)
     search?: (...args: any[]) => any
+    songList?: Record<string, any>
+    album?: Record<string, any>
 }
 
 type ModuleCacheEntry = {
@@ -171,6 +176,80 @@ function normalizeSearchResult(result: any, pluginId: string): any {
     }
 }
 
+function formatDuration(ms: number): string {
+    const totalSeconds = Math.floor(ms / 1000)
+    const minutes = Math.floor(totalSeconds / 60)
+    const seconds = totalSeconds % 60
+    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
+}
+
+function normalizeDuration(value: any): string {
+    if (typeof value === 'string' && /^\d{1,3}:\d{2}$/.test(value)) return value
+    const milliseconds = Number(value)
+    return Number.isFinite(milliseconds) ? formatDuration(milliseconds) : '00:00'
+}
+
+function normalizeSongForApp(item: any, pluginId: string): any {
+    const normalized = normalizeSearchItem(item, pluginId)
+    const picUrl = normalized.m_img || normalized.mPic || normalized.pic || normalized.img || normalized.picUrl || ''
+
+    return {
+        ...normalized,
+        id: String(normalized.id || normalized.songmid || ''),
+        name: String(normalized.name || ''),
+        artist: String(normalized.artists || normalized.singer || normalized.artist || ''),
+        picUrl,
+        url: '',
+        duration: normalizeDuration(normalized.interval ?? normalized.duration ?? normalized.dt),
+        source: String(normalized.source || pluginId),
+        albumId: normalized.albumId ? String(normalized.albumId) : null,
+        albumName: normalized.albumName || '',
+        type: 'Remote',
+        quality: 'auto',
+        types: normalized.types ?? normalized.qualities ?? {},
+    }
+}
+
+function normalizePluginCollection(result: any, pluginId: string, id: string, kind: 'playlist' | 'album'): any {
+    const rawList = Array.isArray(result) ? result : result?.list
+    const list = Array.isArray(rawList)
+        ? rawList.filter(Boolean).map((item) => normalizeSongForApp(item, pluginId))
+        : []
+    const info = result?.info ?? result ?? {}
+    const title = info.name || info.title || (kind === 'album' ? '插件专辑' : '插件歌单')
+    const desc = info.desc || info.description || ''
+    const img = info.img || info.pic || info.picUrl || info.cover || list[0]?.picUrl || ''
+    const author = info.author || info.artist || info.creator || ''
+
+    return {
+        id: String(info.id ?? id),
+        scope: 'plugin',
+        source: pluginId,
+        kind,
+        info: {
+            id: String(info.id ?? id),
+            name: String(title),
+            desc: String(desc),
+            img: String(img),
+            author: String(author),
+            play_count: String(info.play_count || info.playCount || ''),
+        },
+        list,
+        total: Number(result?.total ?? info.total ?? list.length) || list.length,
+        page: Number(result?.page ?? 1) || 1,
+        limit: Number(result?.limit ?? list.length) || list.length,
+    }
+}
+
+async function callCandidate(candidates: Array<{ target: any; method: string; args: any[] }>): Promise<any> {
+    for (const candidate of candidates) {
+        const fn = candidate.target?.[candidate.method]
+        if (typeof fn !== 'function') continue
+        return await unwrapPluginResult(fn.apply(candidate.target, candidate.args))
+    }
+    throw new Error('Method not found')
+}
+
 export class PluginSystem {
     private readonly pluginId: string
     private plugin: PluginModule | null = null
@@ -209,6 +288,12 @@ export class PluginSystem {
         }
         if (method === 'getUrl') {
             return this.getUrl(String(args[0] ?? ''), String(args[1] ?? ''))
+        }
+        if (method === 'getPlaylist') {
+            return this.getPlaylist(String(args[0] ?? ''), Number(args[1]) || 1, Number(args[2]) || 100)
+        }
+        if (method === 'getAlbum') {
+            return this.getAlbum(String(args[0] ?? ''), Number(args[1]) || 1, Number(args[2]) || 100)
         }
 
         const plugin = this.getRequiredPlugin()
@@ -288,6 +373,29 @@ export class PluginSystem {
             console.error(`[PluginSystem] Failed to get lyric from ${this.pluginId}:`, err)
             return null
         }
+    }
+
+    async getPlaylist(id: string, page = 1, limit = 100): Promise<any> {
+        const plugin = this.getRequiredPlugin()
+        const result = await callCandidate([
+            { target: plugin, method: 'getPlaylist', args: [id, page, limit] },
+            { target: plugin, method: 'getPlayList', args: [id, page, limit] },
+            { target: plugin, method: 'getMusicSheet', args: [id, page, limit] },
+            { target: plugin.songList, method: 'getListDetail', args: [id, page, limit] },
+            { target: plugin.songList, method: 'getPlaylistDetail', args: [id, page, limit] },
+        ])
+        return normalizePluginCollection(result, this.pluginId, id, 'playlist')
+    }
+
+    async getAlbum(id: string, page = 1, limit = 100): Promise<any> {
+        const plugin = this.getRequiredPlugin()
+        const result = await callCandidate([
+            { target: plugin, method: 'getAlbum', args: [id, page, limit] },
+            { target: plugin, method: 'getMusicAlbum', args: [id, page, limit] },
+            { target: plugin.album, method: 'getListDetail', args: [id, page, limit] },
+            { target: plugin.songList, method: 'getAlbumDetail', args: [id, page, limit] },
+        ])
+        return normalizePluginCollection(result, this.pluginId, id, 'album')
     }
 
     static getAllPlugins(): any[] {

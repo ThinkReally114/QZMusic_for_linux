@@ -44,19 +44,8 @@ body {
   display: flex;
   height: 100vh;
   width: 100vw;
-  background-color: var(--color-bg-primary);
-  overflow: hidden; /* 确保整个应用不会出现双重滚动条 */
-}
-
-/* Dynamic Spacing for PlayerBar */
-.layout-sidebar,
-.content-area {
-  transition: padding-bottom 0.3s ease;
-}
-
-.main-layout.has-player .layout-sidebar,
-.main-layout.has-player .content-area {
-  padding-bottom: 80px; /* PlayerBar Height */
+  background: var(--color-bg-primary);
+  overflow: hidden;
 }
 
 .content-area {
@@ -66,14 +55,25 @@ body {
   position: relative;
   overflow: hidden;
   min-width: 0;
+  background:
+    var(--color-atmosphere-gradient) top / 100% 240px no-repeat,
+    var(--color-bg-primary);
 }
 
 .page-content {
   flex: 1;
   overflow-y: auto;
-  padding: 0;
-  background-color: var(--color-bg-primary);
+  padding: 0 0 20px;
+  background: transparent;
   position: relative;
+  box-sizing: border-box;
+  scroll-padding-bottom: 20px;
+  transition: padding-bottom 0.24s ease, scroll-padding-bottom 0.24s ease;
+}
+
+.main-layout.has-player .page-content {
+  padding-bottom: 128px;
+  scroll-padding-bottom: 128px;
 }
 
 /* 滚动条样式优化 */

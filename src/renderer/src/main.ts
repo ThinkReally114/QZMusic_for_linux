@@ -31,6 +31,46 @@ const router = createRouter({
       component: () => import('./views/Playlist.vue')
     },
     {
+      path: '/together',
+      name: 'ListenTogether',
+      component: () => import('./views/ListenTogether.vue')
+    },
+    {
+      path: '/listen-stats',
+      name: 'ListenStats',
+      component: () => import('./views/ListenStats.vue')
+    },
+    {
+      path: '/listen-rank',
+      name: 'ListenRank',
+      component: () => import('./views/ListenRank.vue')
+    },
+    {
+      path: '/playlist-square',
+      name: 'PlaylistSquare',
+      component: () => import('./views/PlaylistSquare.vue')
+    },
+    {
+      path: '/user/:id',
+      name: 'UserProfile',
+      component: () => import('./views/UserProfile.vue')
+    },
+    {
+      path: '/user/:id/liked',
+      name: 'UserLikedPlaylist',
+      component: () => import('./views/Playlist.vue')
+    },
+    {
+      path: '/playlist/:scope/:id',
+      name: 'PlaylistDetail',
+      component: () => import('./views/Playlist.vue')
+    },
+    {
+      path: '/plugin/:pluginId/:kind/:id',
+      name: 'PluginCollection',
+      component: () => import('./views/Playlist.vue')
+    },
+    {
       path: '/search',
       name: 'Search',
       component: () => import('./views/Search.vue')

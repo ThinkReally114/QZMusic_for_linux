@@ -23,7 +23,7 @@
 <script setup lang="ts">
 import TextMarquee from './TextMarquee.vue';
 
-const props = defineProps<{
+defineProps<{
   name?: string;
   artists?: string[];
   album?: string;

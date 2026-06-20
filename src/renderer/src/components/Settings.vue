@@ -80,6 +80,34 @@
             </div>
 
             <!-- 插件管理 -->
+            <div v-else-if="activeCategory === 'privacy'" class="section">
+              <h2 class="section-title">隐私设置</h2>
+              <div class="setting-item">
+                <div class="setting-info">
+                  <div class="setting-label">允许他人查看我的喜欢和歌单</div>
+                  <div class="setting-desc">关闭后，公开歌单和喜欢的歌曲都只对自己可见</div>
+                </div>
+                <div class="setting-control">
+                  <label class="toggle-switch" :class="{ 'no-transition': !enableTransition }">
+                    <input type="checkbox" v-model="allowPublicLibrary" :disabled="privacyLoading" @change="onPrivacyChange('library')" />
+                    <span class="toggle-slider"></span>
+                  </label>
+                </div>
+              </div>
+              <div class="setting-item">
+                <div class="setting-info">
+                  <div class="setting-label">允许他人查看我的个人信息</div>
+                  <div class="setting-desc">关闭后，地区、性别和生日只对自己可见</div>
+                </div>
+                <div class="setting-control">
+                  <label class="toggle-switch" :class="{ 'no-transition': !enableTransition }">
+                    <input type="checkbox" v-model="allowPublicProfile" :disabled="privacyLoading" @change="onPrivacyChange('profile')" />
+                    <span class="toggle-slider"></span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
             <div v-else-if="activeCategory === 'plugins'" class="section">
               <div class="section-header">
                 <div>
@@ -167,7 +195,7 @@
                       :key="color.value"
                       class="color-swatch"
                       :class="{ active: appearance.accentColor === color.value }"
-                      :style="{ '--swatch-color': color.value }"
+                      :style="{ '--swatch-color': color.value, '--swatch-bg': color.gradient || color.value }"
                       :title="color.name"
                       @click="setAccentColor(color.value)"
                     >
@@ -202,6 +230,44 @@
                 </div>
               </div>
 
+              <div class="setting-item">
+                <div class="setting-info">
+                  <div class="setting-label">歌单加载方式</div>
+                  <div class="setting-desc">选择歌单和专辑页面的歌曲加载方式</div>
+                </div>
+                <div class="setting-control">
+                  <div class="segmented-control">
+                    <button
+                      class="segment-btn"
+                      :class="{ active: playlistPagingMode === 'infinite' }"
+                      @click="setPlaylistPagingMode('infinite')"
+                    >
+                      下滑加载
+                    </button>
+                    <button
+                      class="segment-btn"
+                      :class="{ active: playlistPagingMode === 'pagination' }"
+                      @click="setPlaylistPagingMode('pagination')"
+                    >
+                      页码分页
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="setting-item">
+                <div class="setting-info">
+                  <div class="setting-label">点击歌曲后打开播放页</div>
+                  <div class="setting-desc">从搜索、歌单、推荐里点击歌曲播放时，自动进入全屏播放页</div>
+                </div>
+                <div class="setting-control">
+                  <label class="toggle-switch">
+                    <input type="checkbox" v-model="openPlayerOnSongClick" @change="onOpenPlayerPreferenceChange" />
+                    <span class="toggle-slider"></span>
+                  </label>
+                </div>
+              </div>
+
               <div class="placeholder-content">
                 <Icon icon="lucide:headphones" class="placeholder-icon" />
                 <p>音质、淡入淡出等设置即将推出</p>
@@ -209,7 +275,17 @@
             </div>
 
             <!-- 快捷键 -->
-            <div v-else-if="activeCategory === 'shortcuts'" class="section">
+            <div v-else-if="activeCategory === 'shortcuts'" class="section shortcuts-section">
+              <h2 class="shortcut-title">快捷键</h2>
+              <div class="shortcut-list">
+                <div v-for="item in shortcutRows" :key="item.key" class="shortcut-row">
+                  <div>
+                    <div class="setting-label">{{ item.name }}</div>
+                    <div class="setting-desc">{{ item.desc }}</div>
+                  </div>
+                  <kbd>{{ item.key }}</kbd>
+                </div>
+              </div>
               <h2 class="section-title">快捷键</h2>
               <div class="placeholder-content">
                 <Icon icon="lucide:keyboard" class="placeholder-icon" />
@@ -260,6 +336,7 @@ defineEmits(['close']);
 
 const categories = [
   { id: 'storage', name: '存储', icon: 'lucide:hard-drive' },
+  { id: 'privacy', name: '隐私', icon: 'lucide:shield' },
   { id: 'plugins', name: '插件', icon: 'lucide:blocks' },
   { id: 'appearance', name: '外观', icon: 'lucide:palette' },
   { id: 'playback', name: '播放', icon: 'lucide:headphones' },
@@ -268,6 +345,11 @@ const categories = [
 ];
 
 const accentColors = [
+    {
+      name: '默认蓝紫',
+      value: '#8289d3',
+      gradient: 'linear-gradient(135deg, #b0baeb 0%, #b1bfe9 24%, #b3c9df 48%, #c1c0d3 72%, #dfacb9 100%)',
+  },
   { name: '红色', value: '#ec4141' },
   { name: '橙色', value: '#f97316' },
   { name: '金色', value: '#eab308' },
@@ -282,6 +364,16 @@ const activeCategory = ref('storage');
 const isLoaded = ref(false);
 const enableTransition = ref(false);
 const plugins = ref<any[]>([]);
+const playlistPagingMode = ref<'infinite' | 'pagination'>('infinite');
+const openPlayerOnSongClick = ref(false);
+const allowPublicLibrary = ref(false);
+const allowPublicProfile = ref(false);
+const privacyLoading = ref(false);
+const shortcutRows = [
+  { key: 'Space', name: '播放 / 暂停', desc: '在非输入状态下切换当前播放状态' },
+  { key: 'A', name: '上一首', desc: '切换到播放队列里的上一首歌曲' },
+  { key: 'D', name: '下一首', desc: '切换到播放队列里的下一首歌曲' },
+];
 
 const settings = reactive({
   persistCache: true,
@@ -289,7 +381,7 @@ const settings = reactive({
 
 const appearance = reactive({
   theme: 'dark' as 'dark' | 'light',
-  accentColor: '#ec4141',
+  accentColor: '#8289d3',
 });
 
 const cacheInfo = reactive({
@@ -374,9 +466,44 @@ const loadAppearance = async () => {
   if (window.electronAPI?.settings) {
     const allSettings = await window.electronAPI.settings.getAll();
     appearance.theme = allSettings.theme;
-    appearance.accentColor = allSettings.accentColor;
+    appearance.accentColor = allSettings.accentColor === '#b3c9df' ? '#8289d3' : allSettings.accentColor;
+    playlistPagingMode.value = allSettings.playlistPagingMode || 'infinite';
+    openPlayerOnSongClick.value = Boolean(allSettings.openPlayerOnSongClick);
     applyTheme(appearance.theme);
     applyAccentColor(appearance.accentColor);
+  }
+};
+
+const loadPrivacy = async () => {
+  if (!window.electronAPI?.privacy?.getLibrary) return;
+  try {
+    privacyLoading.value = true;
+    const data = await window.electronAPI.privacy.getLibrary();
+    allowPublicLibrary.value = Boolean(data?.allow_public_library);
+    allowPublicProfile.value = Boolean(data?.allow_public_profile);
+  } catch (e) {
+    console.warn('Failed to load privacy settings', e);
+  } finally {
+    privacyLoading.value = false;
+  }
+};
+
+const onPrivacyChange = async (target: 'library' | 'profile') => {
+  if (!window.electronAPI?.privacy?.setLibrary) return;
+  try {
+    privacyLoading.value = true;
+    const payload = target === 'library'
+      ? { allow_public_library: allowPublicLibrary.value }
+      : { allow_public_profile: allowPublicProfile.value };
+    const data = await window.electronAPI.privacy.setLibrary(payload);
+    allowPublicLibrary.value = Boolean(data?.allow_public_library);
+    allowPublicProfile.value = Boolean(data?.allow_public_profile);
+    ElMessage.success('隐私设置已更新');
+  } catch (e) {
+    ElMessage.error('隐私设置更新失败');
+    await loadPrivacy();
+  } finally {
+    privacyLoading.value = false;
   }
 };
 
@@ -386,6 +513,11 @@ const applyTheme = (theme: 'dark' | 'light') => {
 
 const applyAccentColor = (color: string) => {
   document.documentElement.style.setProperty('--color-accent', color);
+  document.documentElement.style.setProperty('--color-accent-gradient', color);
+  const atmosphere = color === '#8289d3'
+    ? 'linear-gradient(180deg, rgba(176, 186, 235, 0.36) 0%, rgba(177, 191, 233, 0.31) 18%, rgba(179, 201, 223, 0.25) 38%, rgba(193, 192, 211, 0.18) 58%, rgba(223, 172, 185, 0.11) 78%, transparent 100%)'
+    : 'linear-gradient(180deg, color-mix(in srgb, var(--color-accent) 12%, transparent) 0%, color-mix(in srgb, var(--color-accent) 7%, transparent) 44%, transparent 100%)';
+  document.documentElement.style.setProperty('--color-atmosphere-gradient', atmosphere);
 };
 
 const setTheme = async (theme: 'dark' | 'light') => {
@@ -402,6 +534,23 @@ const setAccentColor = async (color: string) => {
   if (window.electronAPI?.settings) {
     await window.electronAPI.settings.setAccentColor(color);
   }
+};
+
+const setPlaylistPagingMode = async (mode: 'infinite' | 'pagination') => {
+  playlistPagingMode.value = mode;
+  if (window.electronAPI?.settings) {
+    await window.electronAPI.settings.set({ playlistPagingMode: mode });
+  }
+  window.dispatchEvent(new CustomEvent('qz-playlist-page-mode-changed', { detail: mode }));
+};
+
+const onOpenPlayerPreferenceChange = async () => {
+  if (window.electronAPI?.settings) {
+    await window.electronAPI.settings.set({ openPlayerOnSongClick: openPlayerOnSongClick.value });
+  }
+  window.dispatchEvent(new CustomEvent('qz-open-player-on-song-click-changed', {
+    detail: openPlayerOnSongClick.value,
+  }));
 };
 
 const onCacheToggle = async () => {
@@ -450,7 +599,7 @@ const changeCacheLocation = async () => {
 
 // Load settings BEFORE mount to avoid visual flicker
 onBeforeMount(async () => {
-  await Promise.all([loadCacheInfo(), loadAppearance()]);
+  await Promise.all([loadCacheInfo(), loadAppearance(), loadPrivacy()]);
   isLoaded.value = true;
   // Enable transition after initial render
   nextTick(() => {
@@ -680,7 +829,7 @@ onBeforeMount(async () => {
 }
 
 input:checked + .toggle-slider {
-  background-color: var(--color-accent);
+  background: var(--color-accent-gradient);
 }
 
 input:checked + .toggle-slider:before {
@@ -835,21 +984,24 @@ input:checked + .toggle-slider:before {
   height: 36px;
   border-radius: var(--radius-full);
   border: 3px solid transparent;
-  background-color: var(--swatch-color);
+  background: var(--swatch-bg);
   cursor: pointer;
   position: relative;
-  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  transition: border-color 0.18s ease, outline-color 0.18s ease;
   display: flex;
   align-items: center;
   justify-content: center;
+  outline: 1px solid color-mix(in srgb, var(--swatch-color) 22%, transparent);
+  outline-offset: 2px;
 }
 
 .color-swatch:hover {
-  transform: scale(1.1);
+  border-color: color-mix(in srgb, var(--swatch-color) 34%, transparent);
 }
 
 .color-swatch.active {
-  box-shadow: 0 0 16px var(--swatch-color);
+  border-color: var(--color-bg-primary);
+  outline-color: var(--swatch-color);
 }
 
 .check-icon {
@@ -893,6 +1045,77 @@ input:checked + .toggle-slider:before {
   width: 16px;
   height: 16px;
   cursor: pointer;
+}
+
+.segmented-control {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: var(--radius-full);
+  background: var(--color-bg-tertiary);
+}
+
+.segment-btn {
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: var(--radius-full);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  transition: background-color 160ms ease, color 160ms ease;
+}
+
+.segment-btn:hover {
+  color: var(--color-text-primary);
+}
+
+.segment-btn.active {
+  background: var(--color-bg-primary);
+  color: var(--color-accent);
+}
+
+.shortcuts-section .placeholder-content {
+  display: none;
+}
+
+.shortcuts-section > .section-title {
+  display: none;
+}
+
+.shortcut-title {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin-bottom: 24px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.shortcut-list {
+  display: grid;
+  gap: 10px;
+}
+
+.shortcut-row {
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+kbd {
+  min-width: 58px;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: var(--radius-md);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+  font: 700 13px var(--font-family-base);
 }
 
 /* Plugin Card Styles */
