@@ -360,9 +360,11 @@ export class PluginSystem {
     }
 
     async getLyric(id: string): Promise<any> {
+        console.log(`[getLyric] ENTER plugin=${this.pluginId} id=${id} pluginLoaded=${!!this.plugin}`)
         try {
             const plugin = this.getRequiredPlugin()
             if (typeof plugin.getLyric !== 'function') {
+                console.log(`[getLyric] plugin ${this.pluginId} does NOT implement getLyric, available methods: ${Object.keys(plugin).filter(k => typeof (plugin as any)[k] === 'function').join(',')}`)
                 return null
             }
 
@@ -371,10 +373,10 @@ export class PluginSystem {
             const preview = typeof finalResult === 'string'
                 ? finalResult.slice(0, 300)
                 : JSON.stringify(finalResult).slice(0, 300)
-            console.log(`[getLyric] plugin=${this.pluginId} id=${id} type=${typeof finalResult} preview=${preview}`)
+            console.log(`[getLyric] OK plugin=${this.pluginId} id=${id} type=${typeof finalResult} preview=${preview}`)
             return finalResult
         } catch (err) {
-            console.error(`[PluginSystem] Failed to get lyric from ${this.pluginId}:`, err)
+            console.error(`[getLyric] FAILED plugin=${this.pluginId} id=${id}:`, err)
             return null
         }
     }

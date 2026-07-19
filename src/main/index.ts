@@ -202,6 +202,7 @@ ipcMain.handle('qzplayer-seek', (_, time) => qzplayer?.seek(time))
 ipcMain.handle(
     'plugin:call',
     async (_event, pluginId: string, method: string, args: any[]) => {
+        console.log(`[plugin:call] pluginId=${pluginId} method=${method} args=${JSON.stringify(args)?.slice(0, 200)}`)
         const plugin = new PluginSystem(pluginId)
         try {
             return await plugin.call(method, args)
