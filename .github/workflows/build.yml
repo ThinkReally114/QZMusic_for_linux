@@ -23,7 +23,8 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libtag-dev mpv
+          sudo apt-get install -y mpv
+          sudo apt-get install -y libtag-dev || sudo apt-get install -y libtag1-dev || sudo apt-get install -y libtagc0-dev
 
       - name: Install npm dependencies
         run: npm ci --registry=https://registry.npmmirror.com
