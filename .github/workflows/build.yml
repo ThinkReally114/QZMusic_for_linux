@@ -1,0 +1,54 @@
+name: Build Linux Release
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libtag-dev mpv
+
+      - name: Install npm dependencies
+        run: npm ci --registry=https://registry.npmmirror.com
+
+      - name: Build taglib_reader
+        run: |
+          cd native/taglib_reader
+          chmod +x build.sh
+          ./build.sh
+
+      - name: Build Electron app
+        env:
+          ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
+        run: npm run electron:build:linux
+
+      - name: Upload AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: QZMusic-Linux-AppImage
+          path: release/*.AppImage
+          retention-days: 30
+
+      - name: Upload deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: QZMusic-Linux-deb
+          path: release/*.deb
+          retention-days: 30
