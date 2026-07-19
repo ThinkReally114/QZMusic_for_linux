@@ -298,7 +298,17 @@ export class QzpController extends EventEmitter {
         return this.send(['set_property', 'volume', vol]);
     }
 
-    async seek(seconds: number): Promise<void> {
+    /**
+     * 跳转到指定播放位置。
+     *
+     * 注意：入参 `timeMs` 为毫秒级，与渲染进程及 mpv `time-pos` 经 `index.ts` 转换后的单位保持一致；
+     * 而 mpv 的 `seek` 命令接收秒级数值，因此内部需要除以 1000 再下发。
+     * 之前直接把毫秒当秒下发给 mpv，会导致 seek 越过 duration 触发 eof，从而误切下一首。
+     *
+     * @param timeMs 目标播放位置，单位毫秒
+     */
+    async seek(timeMs: number): Promise<void> {
+        const seconds = Number.isFinite(timeMs) && timeMs > 0 ? timeMs / 1000 : 0;
         return this.send(['seek', seconds, 'absolute']);
     }
 

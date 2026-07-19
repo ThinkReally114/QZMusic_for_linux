@@ -39,8 +39,25 @@ function resetLineTimestamps(lines: LyricLine[]) {
 			const firstWord = line.words[0];
 			const lastWord = line.words[line.words.length - 1];
 
-			line.startTime = firstWord.startTime;
-			line.endTime = lastWord.endTime;
+			// 起始时间：行起始不应晚于第一个字的起始，否则会出现行还没开始但字已开始的情况
+			if (
+				!Number.isFinite(line.startTime) ||
+				line.startTime > firstWord.startTime
+			) {
+				line.startTime = firstWord.startTime;
+			}
+
+			// 结束时间：仅在行结束时间无效或早于最后一个字结束时才修正。
+			// 刻意保留 LRC 解析器设置的“下一行起始时间”作为当前行结束时间，
+			// 否则 LRC 末行 endTime 会被覆盖成 word.endTime（约等于 startTime），
+			// 导致该行在时间轴上只激活 1ms，歌词无法正常滚动。
+			if (
+				!Number.isFinite(line.endTime) ||
+				line.endTime <= line.startTime ||
+				line.endTime < lastWord.endTime
+			) {
+				line.endTime = lastWord.endTime;
+			}
 		}
 	}
 }

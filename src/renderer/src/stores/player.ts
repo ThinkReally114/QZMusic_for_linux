@@ -72,8 +72,15 @@ export const usePlayerStore = defineStore('player', () => {
     let lastTaskbarProgress = -1;
     let lastTaskbarMode: 'normal' | 'paused' = 'normal';
 
+    // Seek 保护：拖动进度条时 mpv 可能因 seek 到末尾而触发 end-file(eof)，
+    // 这并非真正的播放结束，需要在该窗口内忽略自动切歌。
+    let seekEofGuardUntil = 0;
+    const SEEK_EOF_GUARD_MS = 1200;
+
     // Lyrics State
     const lyrics = shallowRef<{ lines: any[] }>({ lines: [] });
+    // 歌词请求竞态守护：快速切歌时只接受最后一次请求的结果，避免旧歌词覆盖新歌词
+    let lyricFetchToken = 0;
 
     // --- Helpers ---
     const activateDummyAudio = async () => {
@@ -289,6 +296,8 @@ export const usePlayerStore = defineStore('player', () => {
     };
 
     const fetchLyrics = async (song: Song) => {
+        // 递增 token，本次请求只能在自己仍是最新请求时写回结果
+        const token = ++lyricFetchToken;
         lyrics.value = { lines: [] }; // Reset
         if (!song || !song.id) return;
         if (song.type === 'Local' || song.source === 'local') {
@@ -302,6 +311,8 @@ export const usePlayerStore = defineStore('player', () => {
             //Check if plugin API exists
             if (window.electronAPI?.plugin?.getLyric) {
                 const rawLyric = await window.electronAPI.plugin.getLyric(song.source || 'kw', song.id.toString());
+                // 快速切歌时丢弃过期请求的结果，避免旧歌词覆盖新歌词导致显示异常
+                if (token !== lyricFetchToken) return;
                 lyrics.value = { lines: parseLyric(rawLyric) }
                 console.log(lyrics.value)
             } else {
@@ -561,6 +572,11 @@ export const usePlayerStore = defineStore('player', () => {
             if (data.event === 'end-file') {
                 const reason = data.reason;
                 if (reason === 'eof') {
+                    // 拖动进度条后短时间内收到的 eof 视为 seek 副作用，忽略自动切歌
+                    if (Date.now() < seekEofGuardUntil) {
+                        seekEofGuardUntil = 0;
+                        return;
+                    }
                     next(false);
                 } else if (reason === 'error') {
                     handlePlayError().then();
@@ -579,6 +595,8 @@ export const usePlayerStore = defineStore('player', () => {
     };
 
     const seek = async (time: number) => {
+        // 开启 eof 保护窗口，避免 seek 到末尾被 mpv 误判为播放结束
+        seekEofGuardUntil = Date.now() + SEEK_EOF_GUARD_MS;
         await window.electronAPI.qzplayer.seek(time);
         currentTime.value = time;
         notifyTogetherSeek();
