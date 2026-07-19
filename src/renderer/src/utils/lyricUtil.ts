@@ -53,7 +53,7 @@ export function detectLyricFormat(rawLyric: string): LyricFormat | null {
         return 'qrc'
     }
 
-    if (/\[\d{2,}:\d{2}(?:\.\d{1,3})?]/.test(raw)) {
+    if (/\[\d{1,}:\d{2}(?:\.\d{1,3})?]/.test(raw)) {
         return 'lrc'
     }
 
@@ -143,31 +143,45 @@ function normalizeLyricData(input: unknown): LyricData | null {
     if (!input || typeof input !== 'object') return null
 
     const data = input as LyricData
+
+    const lrcStr = typeof data.lrc === 'string' ? data.lrc : (data.lrc as any)?.lyric
+    const yrcStr = typeof data.yrc === 'string' ? data.yrc : (data.yrc as any)?.lyric
+    const tlyricStr = typeof data.tlyric === 'string' ? data.tlyric : (data.tlyric as any)?.lyric
+    const romalrcStr = typeof data.romalrc === 'string' ? data.romalrc : (data.romalrc as any)?.lyric
+    const lyricStr = typeof data.lyric === 'string' ? data.lyric : (data.lyric as any)?.lyric
+
+    const normalized: LyricData = { ...data }
+    if (lrcStr) normalized.lrc = lrcStr
+    if (yrcStr) normalized.yrc = yrcStr
+    if (tlyricStr) normalized.tlyric = tlyricStr
+    if (romalrcStr) normalized.romalrc = romalrcStr
+    if (lyricStr && !normalized.lrc && !normalized.yrc) normalized.lyric = lyricStr
+
     if (
-        typeof data.ttml === 'string' ||
-        typeof data.krc === 'string' ||
-        typeof data.yrc === 'string' ||
-        typeof data.qrc === 'string' ||
-        typeof data.lrc === 'string'
+        typeof normalized.ttml === 'string' ||
+        typeof normalized.krc === 'string' ||
+        typeof normalized.yrc === 'string' ||
+        typeof normalized.qrc === 'string' ||
+        typeof normalized.lrc === 'string'
     ) {
-        return data
+        return normalized
     }
 
-    if (typeof data.lyric === 'string') {
-        const format = detectLyricFormat(data.lyric)
+    if (typeof normalized.lyric === 'string') {
+        const format = detectLyricFormat(normalized.lyric)
         if (format) {
             return {
-                ...data,
-                [format]: data.lyric,
+                ...normalized,
+                [format]: normalized.lyric,
             }
         }
         return {
-            ...data,
-            plain: data.lyric,
+            ...normalized,
+            plain: normalized.lyric,
         }
     }
 
-    return data
+    return normalized
 }
 
 function parsePrimaryLyric(data: LyricData): LyricLine[] {

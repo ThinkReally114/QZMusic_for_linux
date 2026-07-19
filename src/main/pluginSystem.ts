@@ -367,8 +367,12 @@ export class PluginSystem {
             }
 
             const result = await unwrapPluginResult(plugin.getLyric.call(plugin, id))
-            if (Buffer.isBuffer(result)) return result.toString('utf8')
-            return result
+            const finalResult = Buffer.isBuffer(result) ? result.toString('utf8') : result
+            const preview = typeof finalResult === 'string'
+                ? finalResult.slice(0, 300)
+                : JSON.stringify(finalResult).slice(0, 300)
+            console.log(`[getLyric] plugin=${this.pluginId} id=${id} type=${typeof finalResult} preview=${preview}`)
+            return finalResult
         } catch (err) {
             console.error(`[PluginSystem] Failed to get lyric from ${this.pluginId}:`, err)
             return null
