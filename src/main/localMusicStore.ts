@@ -55,9 +55,12 @@ function getLibraryPath(): string {
 }
 
 function getReaderExe(): string {
+    const isLinux = process.platform === 'linux'
+    const ext = isLinux ? '' : '.exe'
     const candidates = [
-        path.join(process.env.APP_ROOT || '', 'native', 'taglib_reader', 'build', 'taglib_reader_cli.exe'),
-        path.join(process.resourcesPath || '', 'native', 'taglib_reader_cli.exe'),
+        path.join(process.env.APP_ROOT || '', 'native', 'taglib_reader', 'build', `taglib_reader_cli${ext}`),
+        path.join(process.resourcesPath || '', `taglib_reader_cli${ext}`),
+        path.join(process.resourcesPath || '', 'native', `taglib_reader_cli${ext}`),
     ]
     const target = candidates.find((candidate) => candidate && fs.existsSync(candidate))
     if (!target) throw new Error('TagLib reader executable not found')
@@ -69,6 +72,17 @@ function getArtworkDir(): string {
 }
 
 function getDefaultRoots(): string[] {
+    const isLinux = process.platform === 'linux'
+    if (isLinux) {
+        const home = app.getPath('home')
+        const roots: string[] = []
+        for (const dirName of ['Music', '音乐', 'Downloads', '下载']) {
+            const candidate = path.join(home, dirName)
+            if (fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()) roots.push(candidate)
+        }
+        return Array.from(new Set(roots))
+    }
+
     const username = path.basename(app.getPath('home'))
     const roots: string[] = []
     for (let code = 67; code <= 90; code++) {

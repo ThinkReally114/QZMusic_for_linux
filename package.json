@@ -1,15 +1,23 @@
 {
   "name": "qzmusic",
   "private": true,
-  "author": "lqtmcstudio",
-  "description": "QZMusic - 简洁、美观、拓展性强的音乐播放器",
-  "version": "0.0.0",
+  "author": "lqtmcstudio <lqtmcstudio@users.noreply.github.com>",
+  "contributors": [
+    {
+      "name": "ThinkReally114"
+    }
+  ],
+  "description": "QZ Music For Linux",
+  "version": "1.0.0",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "electron:build": "electron-vite build && electron-builder --win --x64 --config --publish never",
-    "electron:build:ia32": "electron-vite build && electron-builder --win --ia32 --config --publish never"
+    "electron:build:ia32": "electron-vite build && electron-builder --win --ia32 --config --publish never",
+    "electron:build:linux": "electron-vite build && electron-builder --linux --config --publish never",
+    "electron:build:linux:deb": "electron-vite build && electron-builder --linux deb --config --publish never",
+    "electron:build:linux:appimage": "electron-vite build && electron-builder --linux AppImage --config --publish never"
   },
   "dependencies": {
     "@applemusic-like-lyrics/core": "file:amll-local/packages/core",
@@ -59,26 +67,41 @@
     },
     "win": {
       "target": "nsis",
-      "icon": "public/icon.ico"
+      "icon": "public/icon.ico",
+      "extraResources": [
+        {
+          "from": "core/qzplayer.exe",
+          "to": "core/qzplayer.exe"
+        },
+        {
+          "from": "core/libfftw3f-3.dll",
+          "to": "core/libfftw3f-3.dll"
+        },
+        {
+          "from": "native/taglib_reader/build/taglib_reader_cli.exe",
+          "to": "native/taglib_reader_cli.exe"
+        }
+      ]
+    },
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "category": "Audio",
+      "desktop": {
+        "Name": "QZMusic",
+        "Comment": "简洁、美观、拓展性强的音乐播放器",
+        "Keywords": "music;player;audio;"
+      },
+      "extraFiles": [
+        {
+          "from": "native/taglib_reader/build/taglib_reader_cli",
+          "to": "taglib_reader_cli"
+        }
+      ]
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true
-    },
-    "extraResources": [
-      {
-        "from": "core/qzplayer.exe",
-        "to": "core/qzplayer.exe"
-      },
-      {
-        "from": "core/libfftw3f-3.dll",
-        "to": "core/libfftw3f-3.dll"
-      },
-      {
-        "from": "native/taglib_reader/build/taglib_reader_cli.exe",
-        "to": "native/taglib_reader_cli.exe"
-      }
-    ]
+    }
   }
 }

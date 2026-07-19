@@ -620,6 +620,14 @@ app.whenReady().then(() => {
 
     qzplayer.on('event', (data) => {
         // Forward qzplayer events to Render Process
+        // mpv returns time in seconds, renderer expects milliseconds
+        if (data.event === 'property-change') {
+            if (data.name === 'time-pos' && typeof data.data === 'number') {
+                data = { ...data, data: Math.round(data.data * 1000) };
+            } else if (data.name === 'duration' && typeof data.data === 'number') {
+                data = { ...data, data: Math.round(data.data * 1000) };
+            }
+        }
         if (win && !win.isDestroyed()) {
             win.webContents.send('qzplayer-event', data)
         }

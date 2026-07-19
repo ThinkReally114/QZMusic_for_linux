@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { Socket } from 'node:net';
 import { EventEmitter } from 'node:events';
+import { unlinkSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { app } from 'electron';
 
@@ -39,6 +40,9 @@ export class QzpController extends EventEmitter {
 
     private getCorePath(): string {
         const appRoot = process.env.APP_ROOT || process.cwd();
+        if (process.platform === 'linux') {
+            return 'mpv';
+        }
         if (app.isPackaged) {
             return path.join(process.resourcesPath, 'core', 'qzplayer.exe');
         }
@@ -54,8 +58,26 @@ export class QzpController extends EventEmitter {
         const playerPath = this.getCorePath();
         console.log('Starting QZPlayer from:', playerPath);
 
+        if (process.platform !== 'win32' && existsSync(this.ipcPath)) {
+            try {
+                unlinkSync(this.ipcPath);
+                console.log('Cleaned up stale IPC socket:', this.ipcPath);
+            } catch {
+                console.warn('Failed to clean up stale IPC socket:', this.ipcPath);
+            }
+        }
+
         try {
-            const child = spawn(playerPath, [], {
+            const args = process.platform === 'linux'
+                ? [
+                    '--no-config',
+                    '--idle',
+                    '--no-video',
+                    '--really-quiet',
+                    '--input-ipc-server=' + this.ipcPath,
+                ]
+                : [];
+            const child = spawn(playerPath, args, {
                 stdio: 'ignore',
                 windowsHide: true,
             });
@@ -207,13 +229,14 @@ export class QzpController extends EventEmitter {
             try {
                 const json = JSON.parse(msg);
                 this.trackPlayerState(json);
-                this.emit('message', json);
 
                 if (json.event) {
                     this.emit('event', json);
                 }
+
+                this.emit('message', json);
             } catch {
-                console.error('Failed to parse QZPlayer message:', msg);
+                console.error('Failed to parse QZPlayer message:', msg.substring(0, 200));
             }
         }
     }
